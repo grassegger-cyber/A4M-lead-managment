@@ -38,7 +38,8 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Schválený stack (stejný jako tipařský portál): SvelteKit jako statická aplikace na Cloudflare Pages, samostatný projekt Supabase ve Frankfurtu, jedna serverová funkce `api`, povinné 2FA (TOTP), nasazení pushem do `main` přes GitHub Actions, migrace ručně s náhledem.
 - Rozhodnuto 19. 11. 2026: Supabase na tarifu zdarma, zálohy vlastní a šifrované.
 - Zálohy schváleny 19. 11. 2026: noční, šifrované před odesláním (klíč drží jen Thomas), Cloudflare R2 v EU, držení 30 dní.
-- Otevřená rozhodnutí: viditelnost repozitáře, pracovní složka mimo iCloud.
+- Repozitář je veřejný (rozhodnuto 19. 11. 2026). Vše, co se commitne, uvidí kdokoli: jen smyšlená data, žádné reálné vzory souborů, klíče ani zálohy.
+- Otevřená rozhodnutí: pracovní složka mimo iCloud.
 
 ## Kontroly
 
