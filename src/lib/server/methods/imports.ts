@@ -1,0 +1,902 @@
+// imports.* methods: Excel import of the master list of companies.
+// Flow: start → appendRows (batches) → validate (steps) → report / rows → apply (steps, resumable).
+// The browser parses the file; the server checks every row again and never trusts the browser.
+import type { Ctx, MethodMap } from '../context.ts';
+import { inTransaction } from '../context.ts';
+import { AppError } from '../errors.ts';
+import { audit, recordInitialState } from '../companies-core.ts';
+import { clampPageSize, getSetting, getSettings, mergeSettingMap } from '../settings-core.ts';
+import { fileResponse, XLSX_MIME } from '../files.ts';
+import {
+	DISTRICT_REGION_CODES,
+	IMPORT_FIELDS,
+	IMPORT_FIELD_LABELS,
+	MULTI_COLUMN_FIELDS,
+	REQUIRED_FIELDS,
+	ROW_ERROR_LABELS,
+	ROW_WARNING_LABELS,
+	UPDATABLE_FIELDS,
+	headerKey,
+	isImportField,
+	rulesFromSettings,
+	sanitizeRawRow,
+	validateRow
+} from '../../import/rows.ts';
+import type { ImportField, ImportRules, RawRow, RowErrorCode, RowWarning } from '../../import/rows.ts';
+
+type ImportStatus = 'uploading' | 'uploaded' | 'validated' | 'applying' | 'applied' | 'cancelled';
+
+interface ImportRow {
+	id: number;
+	filename: string;
+	sheet_name: string | null;
+	status: ImportStatus;
+	mapping: Record<string, string[]>;
+	rules: ImportRules | null;
+	declared_rows: number;
+	empty_rows: number;
+	received_rows: number;
+	validated_rows: number;
+	rows_new: number | null;
+	rows_update: number | null;
+	rows_duplicate: number | null;
+	rows_invalid_ico: number | null;
+	rows_error: number | null;
+	rows_warning: number | null;
+	applied_through_row: number;
+	applied_new: number;
+	applied_updated: number;
+	applied_unchanged: number;
+	applied_phones: number;
+	created_at: Date;
+	created_by_name: string | null;
+	uploaded_at: Date | null;
+	validated_at: Date | null;
+	confirmed_at: Date | null;
+	confirmed_by_name: string | null;
+	applied_at: Date | null;
+	cancelled_at: Date | null;
+	rows_purged_at: Date | null;
+}
+
+const IMPORT_COLUMNS = `id, filename, sheet_name, status, mapping, rules, declared_rows, empty_rows, received_rows,
+	validated_rows, rows_new, rows_update, rows_duplicate, rows_invalid_ico, rows_error, rows_warning,
+	applied_through_row, applied_new, applied_updated, applied_unchanged, applied_phones, created_at, created_by_name,
+	uploaded_at, validated_at, confirmed_at, confirmed_by_name, applied_at, cancelled_at, rows_purged_at`;
+
+/** Shape sent to the browser. */
+function summary(row: ImportRow) {
+	return {
+		id: Number(row.id),
+		filename: row.filename,
+		sheetName: row.sheet_name,
+		status: row.status,
+		mapping: row.mapping,
+		declaredRows: row.declared_rows,
+		emptyRows: row.empty_rows,
+		receivedRows: row.received_rows,
+		validatedRows: row.validated_rows,
+		counts:
+			row.rows_new === null
+				? null
+				: {
+						new: row.rows_new,
+						update: row.rows_update ?? 0,
+						duplicate: row.rows_duplicate ?? 0,
+						invalidIco: row.rows_invalid_ico ?? 0,
+						error: row.rows_error ?? 0,
+						warning: row.rows_warning ?? 0
+					},
+		applied: {
+			throughRow: row.applied_through_row,
+			new: row.applied_new,
+			updated: row.applied_updated,
+			unchanged: row.applied_unchanged,
+			phones: row.applied_phones
+		},
+		createdAt: row.created_at,
+		createdByName: row.created_by_name,
+		uploadedAt: row.uploaded_at,
+		validatedAt: row.validated_at,
+		confirmedAt: row.confirmed_at,
+		confirmedByName: row.confirmed_by_name,
+		appliedAt: row.applied_at,
+		cancelledAt: row.cancelled_at,
+		rowsPurgedAt: row.rows_purged_at
+	};
+}
+
+function importId(args: any): number {
+	const id = Number(args?.id);
+	if (!Number.isInteger(id) || id < 1) throw new AppError('import_id_invalid', 'Chybí číslo importu.');
+	return id;
+}
+
+/** Reads the import and locks its row, so two requests never work on the same import at once. */
+async function lockImport(ctx: Ctx, id: number): Promise<ImportRow> {
+	const row = await ctx.db.one<ImportRow>(`select ${IMPORT_COLUMNS} from imports where id = $1 for update`, [id]);
+	if (!row) throw new AppError('import_not_found', `Import č. ${id} neexistuje.`, 404);
+	return row;
+}
+
+async function readImport(ctx: Ctx, id: number): Promise<ImportRow> {
+	const row = await ctx.db.one<ImportRow>(`select ${IMPORT_COLUMNS} from imports where id = $1`, [id]);
+	if (!row) throw new AppError('import_not_found', `Import č. ${id} neexistuje.`, 404);
+	return row;
+}
+
+async function positiveSetting(ctx: Ctx, key: string): Promise<number> {
+	const n = Math.floor(Number(await getSetting(ctx.db, key)));
+	if (!Number.isFinite(n) || n < 1) throw new AppError('setting_invalid', `Nastavení „${key}“ musí být kladné číslo.`, 500);
+	return n;
+}
+
+async function loadRules(ctx: Ctx): Promise<ImportRules> {
+	try {
+		return rulesFromSettings(await getSettings(ctx.db, 'import.'));
+	} catch (e) {
+		throw new AppError('setting_invalid', `Nastavení importu není v pořádku: ${(e as Error).message}`, 500);
+	}
+}
+
+const STATUS_LABELS: Record<ImportStatus, string> = {
+	uploading: 'nahrává se',
+	uploaded: 'čeká na kontrolu',
+	validated: 'zkontrolovaný',
+	applying: 'zapisuje se',
+	applied: 'zapsaný',
+	cancelled: 'zrušený'
+};
+
+/** Cleans the mapping sent by the browser: { field: [header, ...] }. */
+function cleanMapping(input: unknown): Record<string, string[]> {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		throw new AppError('mapping_invalid', 'Chybí mapování sloupců.');
+	}
+	const mapping: Record<string, string[]> = {};
+	for (const [field, headers] of Object.entries(input as Record<string, unknown>)) {
+		if (!isImportField(field)) throw new AppError('mapping_invalid', `Neznámé pole „${field}“ v mapování.`);
+		if (!Array.isArray(headers)) throw new AppError('mapping_invalid', 'Mapování má neplatný tvar.');
+		const list = headers.map((h) => String(h ?? '').slice(0, 200)).slice(0, 30);
+		if (!list.length) continue;
+		if (list.length > 1 && !MULTI_COLUMN_FIELDS.includes(field)) {
+			throw new AppError('mapping_invalid', `Pole „${IMPORT_FIELD_LABELS[field]}“ smí mít jen jeden sloupec.`);
+		}
+		mapping[field] = list;
+	}
+	for (const field of REQUIRED_FIELDS) {
+		if (!mapping[field]) throw new AppError('mapping_invalid', `V mapování chybí sloupec pro pole „${IMPORT_FIELD_LABELS[field]}“.`);
+	}
+	return mapping;
+}
+
+/** Cleans the header → field memory sent by the browser ('-' = do not use the column). */
+function cleanHeaderMap(input: unknown): Record<string, string> {
+	const result: Record<string, string> = {};
+	if (!input || typeof input !== 'object' || Array.isArray(input)) return result;
+	for (const [header, field] of Object.entries(input as Record<string, unknown>).slice(0, 200)) {
+		const key = headerKey(header).slice(0, 100);
+		if (!key) continue;
+		if (field === '-' || isImportField(field)) result[key] = field as string;
+	}
+	return result;
+}
+
+/** Deletes staged rows of finished imports once the retention period has passed. */
+async function purgeOldRows(ctx: Ctx): Promise<void> {
+	const days = Number(await getSetting(ctx.db, 'retention.import_error_rows_days'));
+	if (!Number.isFinite(days) || days < 0) return;
+	const cutoff = new Date(ctx.now().getTime() - days * 86_400_000);
+	const due = await ctx.db.query<{ id: number }>(
+		`select id from imports
+		 where status in ('applied', 'cancelled') and rows_purged_at is null and coalesce(applied_at, cancelled_at) < $1`,
+		[cutoff]
+	);
+	if (!due.length) return;
+	await inTransaction(ctx, async (tx) => {
+		const ids = due.map((r) => Number(r.id));
+		const removed = await tx.db.run('delete from import_rows where import_id = any($1::bigint[])', [ids]);
+		await tx.db.run('update imports set rows_purged_at = $2 where id = any($1::bigint[])', [ids, tx.now()]);
+		await audit(tx, 'import.rows_purged', {
+			entity: 'import',
+			description: `Smazány uložené řádky starých importů (${ids.length})`,
+			details: { import_ids: ids, rows: removed, retention_days: days }
+		});
+	});
+	await reclaimSpace(ctx);
+}
+
+/**
+ * PGlite runs a single backend, so nothing vacuums or analyses on its own: the space of staged
+ * rows (written about three times, then deleted) would never be reused and the planner would
+ * keep its statistics from before the import. Runs outside a transaction; a failure is only
+ * logged, the import itself is already written.
+ */
+async function reclaimSpace(ctx: Ctx): Promise<void> {
+	// Called from inside a caller's transaction there is nothing to do: VACUUM cannot run there.
+	if (ctx.db.inTransaction) return;
+	try {
+		await ctx.db.exec('vacuum (analyze) import_rows, companies, company_phones, company_state_history');
+	} catch (e) {
+		console.error('[imports] vacuum failed:', e instanceof Error ? e.message : e);
+	}
+}
+
+// ---------- validation ----------
+async function finishValidation(ctx: Ctx, imp: ImportRow): Promise<void> {
+	const id = imp.id;
+	// Duplicates inside the file: the first row with an IČO is used, later ones are marked.
+	await ctx.db.run(
+		`update import_rows r set status = 'duplicate', duplicate_of = f.first_row
+		 from (select row_no, first_row from (
+				select row_no, min(row_no) over (partition by ico) as first_row
+				from import_rows where import_id = $1 and status = 'parsed') s
+		       where row_no <> first_row) f
+		 where r.import_id = $1 and r.row_no = f.row_no`,
+		[id]
+	);
+	// The rest: update of a company already in the database, or a new one.
+	await ctx.db.run(
+		`update import_rows r
+		 set status = case when exists (select 1 from companies c where c.ico = r.ico) then 'update' else 'new' end
+		 where r.import_id = $1 and r.status = 'parsed'`,
+		[id]
+	);
+	const counts = await ctx.db.query<{ status: string; n: number; warned: number }>(
+		`select status, count(*)::int as n, (count(*) filter (where warnings is not null))::int as warned
+		 from import_rows where import_id = $1 group by status`,
+		[id]
+	);
+	const of = (status: string) => counts.find((c) => c.status === status)?.n ?? 0;
+	const warned = counts.reduce((sum, c) => sum + c.warned, 0);
+	await ctx.db.run(
+		`update imports set status = 'validated', validated_at = $2, rows_new = $3, rows_update = $4,
+			rows_duplicate = $5, rows_invalid_ico = $6, rows_error = $7, rows_warning = $8
+		 where id = $1`,
+		[id, ctx.now(), of('new'), of('update'), of('duplicate'), of('invalid_ico'), of('error'), warned]
+	);
+	await audit(ctx, 'import.validated', {
+		entity: 'import',
+		entityId: id,
+		description: `Import č. ${id} zkontrolován: ${of('new')} nových, ${of('update')} existujících, ${of('duplicate')} duplicit, ${of('invalid_ico')} neplatných IČO`,
+		details: {
+			filename: imp.filename,
+			rows: imp.received_rows,
+			empty_rows: imp.empty_rows,
+			new: of('new'),
+			update: of('update'),
+			duplicate: of('duplicate'),
+			invalid_ico: of('invalid_ico'),
+			error: of('error'),
+			warning: warned
+		}
+	});
+}
+
+// ---------- apply ----------
+interface ChunkResult {
+	inserted: number;
+	updated: number;
+	unchanged: number;
+	phones: number;
+}
+
+/** Writes the staged rows with fromRow < row_no <= toRow. Runs inside the caller's transaction. */
+async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: number): Promise<ChunkResult> {
+	const range = [imp.id, fromRow, toRow];
+	const usable = (await ctx.db.one<{ n: number }>(
+		`select count(*)::int as n from import_rows
+		 where import_id = $1 and row_no > $2 and row_no <= $3 and status in ('new', 'update')`,
+		range
+	))!.n;
+
+	// 1. New companies. They start in the default state v_poolu; a company that appeared in the
+	//    database since the check is left to step 2 (on conflict do nothing).
+	const inserted = await ctx.db.query<{ ico: string }>(
+		`insert into companies (ico, name, subject_type, legal_form_code, region_code, region_name,
+			district_code, district_name, nace_codes, founded_on, ca_number)
+		 select r.ico, r.parsed->>'name', r.parsed->>'subject_type', r.parsed->>'legal_form_code',
+			r.parsed->>'region_code', r.parsed->>'region_name', r.parsed->>'district_code', r.parsed->>'district_name',
+			coalesce((select array_agg(v) from jsonb_array_elements_text(r.parsed->'nace_codes') as v), '{}'),
+			(r.parsed->>'founded_on')::date, r.parsed->>'ca_number'
+		 from import_rows r
+		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+		 order by r.row_no
+		 on conflict (ico) do nothing
+		 returning ico`,
+		range
+	);
+	const insertedIcos = inserted.map((r) => r.ico);
+	// First history row of every new company, through the core function (source 'import').
+	const note = `Import č. ${imp.id}`;
+	for (const ico of insertedIcos) {
+		await recordInitialState(ctx, ico, 'import', 'import_new', note);
+	}
+
+	// 2. Companies already in the database: only the non-ownership fields allowed by the setting,
+	//    and only where the row gives a value. State, holder, dates of ownership are never touched.
+	const allowed = (await getSetting<unknown>(ctx.db, 'import.update_existing_fields')) as unknown;
+	const may = (field: (typeof UPDATABLE_FIELDS)[number]) => Array.isArray(allowed) && allowed.includes(field);
+	const flags = [
+		may('name'),
+		may('subject_type'),
+		may('legal_form_code'),
+		may('region'),
+		may('district'),
+		may('nace'),
+		may('founded_on'),
+		may('ca_number')
+	];
+	// Region and district are written as a pair that belongs together (district code → region code
+	// in $13): a district from the row is not taken when it contradicts a region that may not be
+	// overwritten; a region without a district clears a stored district that lies elsewhere, or,
+	// when the district may not be overwritten, the region is not taken.
+	const updated = await ctx.db.run(
+		`with p as (
+			select r.ico,
+				case when $5 then r.parsed->>'name' end as name,
+				case when $6 then r.parsed->>'subject_type' end as subject_type,
+				case when $7 then r.parsed->>'legal_form_code' end as legal_form_code,
+				case when $8 then r.parsed->>'region_code' end as region_code,
+				case when $8 then r.parsed->>'region_name' end as region_name,
+				case when $9 then r.parsed->>'district_code' end as district_code,
+				case when $9 then r.parsed->>'district_name' end as district_name,
+				case when $10 and r.parsed ? 'nace_codes'
+					then (select array_agg(v) from jsonb_array_elements_text(r.parsed->'nace_codes') as v) end as nace_codes,
+				case when $11 then (r.parsed->>'founded_on')::date end as founded_on,
+				case when $12 then r.parsed->>'ca_number' end as ca_number
+			from import_rows r
+			where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+				and not (r.ico = any($4::char(8)[]))
+		 ), f as (
+			select p.ico,
+				coalesce(p.name, c.name) as name,
+				coalesce(p.subject_type, c.subject_type) as subject_type,
+				coalesce(p.legal_form_code, c.legal_form_code) as legal_form_code,
+				case when k.region_conflict and not $9 then c.region_code else coalesce(p.region_code, c.region_code) end as region_code,
+				case when k.region_conflict and not $9 then c.region_name else coalesce(p.region_name, c.region_name) end as region_name,
+				case when k.skip_district then c.district_code when k.region_conflict and $9 then null
+					else coalesce(p.district_code, c.district_code) end as district_code,
+				case when k.skip_district then c.district_name when k.region_conflict and $9 then null
+					else coalesce(p.district_name, c.district_name) end as district_name,
+				coalesce(p.nace_codes, c.nace_codes) as nace_codes,
+				coalesce(p.founded_on, c.founded_on) as founded_on,
+				coalesce(p.ca_number, c.ca_number) as ca_number
+			from p
+			join companies c on c.ico = p.ico
+			cross join lateral (
+				select
+					(p.district_code is not null and p.region_code is null and c.region_code is not null
+						and ($13::jsonb ->> p.district_code) is distinct from c.region_code) as skip_district,
+					(p.region_code is not null and p.district_code is null and c.district_code is not null
+						and ($13::jsonb ->> c.district_code) <> p.region_code) as region_conflict
+			) k
+		 )
+		 update companies c set
+			name = f.name,
+			subject_type = f.subject_type,
+			legal_form_code = f.legal_form_code,
+			region_code = f.region_code,
+			region_name = f.region_name,
+			district_code = f.district_code,
+			district_name = f.district_name,
+			nace_codes = f.nace_codes,
+			founded_on = f.founded_on,
+			ca_number = f.ca_number
+		 from f
+		 where c.ico = f.ico and (
+			f.name is distinct from c.name
+			or f.subject_type is distinct from c.subject_type
+			or f.legal_form_code is distinct from c.legal_form_code
+			or f.region_code is distinct from c.region_code
+			or f.region_name is distinct from c.region_name
+			or f.district_code is distinct from c.district_code
+			or f.district_name is distinct from c.district_name
+			or f.nace_codes is distinct from c.nace_codes
+			or f.founded_on is distinct from c.founded_on
+			or f.ca_number is distinct from c.ca_number)`,
+		[...range, insertedIcos, ...flags, JSON.stringify(DISTRICT_REGION_CODES)]
+	);
+
+	// 3. Phones: added to what the company already has, the same number is never stored twice.
+	const mergeDuplicates = (await getSetting(ctx.db, 'import.merge_duplicate_phones')) === true;
+	const phoneStatuses = mergeDuplicates ? ['new', 'update', 'duplicate'] : ['new', 'update'];
+	const phones = await ctx.db.run(
+		`insert into company_phones (ico, phone, source)
+		 select r.ico, ph.phone, 'import'
+		 from import_rows r
+		 cross join lateral jsonb_array_elements_text(r.parsed->'phones') with ordinality as ph(phone, ord)
+		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status = any($4::text[])
+		 order by r.row_no, ph.ord
+		 on conflict (ico, phone) do nothing`,
+		[...range, phoneStatuses]
+	);
+	// A company without a primary number gets its first one marked.
+	if (phones > 0) {
+		await ctx.db.run(
+			`update company_phones set is_primary = true
+			 where id in (
+				select min(p.id) from company_phones p
+				where p.ico in (select r.ico from import_rows r
+					where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status = any($4::text[]))
+				group by p.ico having not bool_or(p.is_primary))`,
+			[...range, phoneStatuses]
+		);
+	}
+
+	return { inserted: insertedIcos.length, updated, unchanged: usable - insertedIcos.length - updated, phones };
+}
+
+// ---------- error report ----------
+interface ProblemRow {
+	row_no: number;
+	status: string;
+	data: RawRow;
+	ico: string | null;
+	error_code: RowErrorCode | null;
+	duplicate_of: number | null;
+	warnings: RowWarning[] | null;
+}
+
+const PROBLEM_KINDS = ['invalid_ico', 'duplicate', 'error', 'warning'] as const;
+type ProblemKind = (typeof PROBLEM_KINDS)[number];
+
+function problemWhere(kind: ProblemKind): string {
+	return kind === 'warning' ? 'warnings is not null' : `status = '${kind}'`;
+}
+
+function problemText(row: ProblemRow): string {
+	if (row.status === 'duplicate') return `Duplicitní IČO, použije se řádek ${row.duplicate_of}`;
+	if (row.error_code) return ROW_ERROR_LABELS[row.error_code] ?? row.error_code;
+	return '';
+}
+
+function warningText(w: RowWarning): string {
+	return ROW_WARNING_LABELS[w.code] ?? w.code;
+}
+
+async function buildReport(ctx: Ctx, imp: ImportRow): Promise<{ body: Uint8Array; rows: number }> {
+	const { default: ExcelJS } = await import('exceljs');
+	const workbook = new ExcelJS.Workbook();
+	workbook.created = ctx.now();
+
+	const info = workbook.addWorksheet('Souhrn');
+	info.columns = [{ width: 44 }, { width: 28 }];
+	const fmt = (d: Date | null) =>
+		d
+			? `${String(d.getDate()).padStart(2, '0')}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+			: '';
+	const lines: [string, string | number][] = [
+		['Import č.', imp.id],
+		['Soubor', imp.filename],
+		['List', imp.sheet_name ?? ''],
+		['Nahráno', fmt(imp.created_at)],
+		['Nahrál', imp.created_by_name ?? ''],
+		['Stav importu', STATUS_LABELS[imp.status]],
+		['Řádků s daty', imp.received_rows],
+		['Prázdných řádků (přeskočeno)', imp.empty_rows],
+		['Nová IČO', imp.rows_new ?? 0],
+		['IČO, která už v databázi jsou', imp.rows_update ?? 0],
+		['Duplicity v souboru', imp.rows_duplicate ?? 0],
+		['Neplatná IČO', imp.rows_invalid_ico ?? 0],
+		['Ostatní chyby', imp.rows_error ?? 0],
+		['Řádky s upozorněním (zapíšou se bez vadné hodnoty)', imp.rows_warning ?? 0]
+	];
+	for (const line of lines) info.addRow(line);
+	info.getColumn(1).font = { bold: true };
+
+	let total = 0;
+	const sheet = async (name: string, kind: ProblemKind) => {
+		const ws = workbook.addWorksheet(name);
+		const isWarning = kind === 'warning';
+		ws.columns = isWarning
+			? [
+					{ header: 'Řádek v Excelu', width: 16 },
+					{ header: 'IČO', width: 12 },
+					{ header: 'Název', width: 40 },
+					{ header: 'Pole', width: 22 },
+					{ header: 'Hodnota v souboru', width: 28 },
+					{ header: 'Upozornění', width: 48 }
+				]
+			: [
+					{ header: 'Řádek v Excelu', width: 16 },
+					{ header: 'IČO v souboru', width: 16 },
+					{ header: 'Název', width: 40 },
+					{ header: 'Problém', width: 52 }
+				];
+		ws.getRow(1).font = { bold: true };
+		ws.views = [{ state: 'frozen', ySplit: 1 }];
+		// Read in pages so a file with many problems does not sit in memory at once.
+		let after = 0;
+		for (;;) {
+			const rows = await ctx.db.query<ProblemRow>(
+				`select row_no, status, data, ico, error_code, duplicate_of, warnings from import_rows
+				 where import_id = $1 and row_no > $2 and ${problemWhere(kind)} order by row_no limit 5000`,
+				[imp.id, after]
+			);
+			if (!rows.length) break;
+			for (const r of rows) {
+				if (isWarning) {
+					for (const w of r.warnings ?? []) {
+						ws.addRow([r.row_no, r.ico ?? r.data.ico ?? '', r.data.name ?? '', IMPORT_FIELD_LABELS[w.field] ?? w.field, w.value, warningText(w)]);
+					}
+				} else {
+					ws.addRow([r.row_no, r.data.ico ?? '', r.data.name ?? '', problemText(r)]);
+				}
+				total++;
+			}
+			after = rows[rows.length - 1].row_no;
+		}
+	};
+	await sheet('Neplatná IČO', 'invalid_ico');
+	await sheet('Duplicity', 'duplicate');
+	await sheet('Ostatní chyby', 'error');
+	await sheet('Upozornění', 'warning');
+
+	const buffer = await workbook.xlsx.writeBuffer();
+	return { body: new Uint8Array(buffer as ArrayBuffer), rows: total };
+}
+
+// ---------- methods ----------
+export const methods: MethodMap = {
+	/** What the import screen needs before a file is chosen. */
+	'imports.config': async (ctx) => {
+		const s = await getSettings(ctx.db, 'import.');
+		return {
+			fields: IMPORT_FIELDS.map((key) => ({
+				key,
+				label: IMPORT_FIELD_LABELS[key],
+				required: REQUIRED_FIELDS.includes(key),
+				multiple: MULTI_COLUMN_FIELDS.includes(key)
+			})),
+			aliases: s['import.header_aliases'] ?? {},
+			remembered: s['import.column_mapping'] ?? {},
+			uploadBatchRows: await positiveSetting(ctx, 'import.upload_batch_rows'),
+			previewRows: await positiveSetting(ctx, 'import.preview_rows'),
+			maxRows: await positiveSetting(ctx, 'import.max_rows')
+		};
+	},
+
+	/**
+	 * Opens an import. args: { filename, sheetName?, declaredRows, emptyRows?, mapping: { field: [header] },
+	 * headerMap?: { header: field | '-' } }. Remembers the mapping in settings. Returns the import.
+	 */
+	'imports.start': async (ctx, args) => {
+		const filename = String(args?.filename ?? '').trim().slice(0, 255);
+		if (!filename) throw new AppError('filename_missing', 'Chybí název souboru.');
+		const declared = Number(args?.declaredRows);
+		const empty = Number(args?.emptyRows ?? 0);
+		if (!Number.isInteger(declared) || declared < 1) throw new AppError('rows_missing', 'Soubor neobsahuje žádný řádek s daty.');
+		if (!Number.isInteger(empty) || empty < 0) throw new AppError('rows_invalid', 'Neplatný počet prázdných řádků.');
+		const maxRows = await positiveSetting(ctx, 'import.max_rows');
+		if (declared > maxRows) {
+			throw new AppError('too_many_rows', `Soubor má ${declared} řádků, nejvýše lze nahrát ${maxRows} (nastavení importu).`);
+		}
+		const mapping = cleanMapping(args?.mapping);
+		const headerMap = cleanHeaderMap(args?.headerMap);
+		const sheetName = args?.sheetName ? String(args.sheetName).slice(0, 100) : null;
+
+		return inTransaction(ctx, async (tx) => {
+			const row = await tx.db.one<ImportRow>(
+				`insert into imports (filename, sheet_name, status, mapping, declared_rows, empty_rows, created_at, created_by, created_by_name)
+				 values ($1, $2, 'uploading', $3::jsonb, $4, $5, $6, $7, $8) returning ${IMPORT_COLUMNS}`,
+				[filename, sheetName, JSON.stringify(mapping), declared, empty, tx.now(), tx.actor.id, tx.actor.name]
+			);
+			// Remembered through the settings helper: size cap and a settings.update audit row with old and new value.
+			const remembered = Object.keys(headerMap).length
+				? await mergeSettingMap(tx, 'import.column_mapping', headerMap, `zapamatováno při importu č. ${row!.id}`)
+				: 'unchanged';
+			await audit(tx, 'import.started', {
+				entity: 'import',
+				entityId: row!.id,
+				description: `Import č. ${row!.id} založen: ${filename} (${declared} řádků)`,
+				details: {
+					filename,
+					sheet: sheetName,
+					declared_rows: declared,
+					empty_rows: empty,
+					mapping,
+					remembered_mapping: headerMap,
+					mapping_remembered: remembered !== 'too_large'
+				}
+			});
+			return summary(row!);
+		});
+	},
+
+	/**
+	 * Stores one batch of rows. args: { id, rows: [{ rowNo, data }] }. Sending the same row number
+	 * again replaces it, so a failed batch can simply be sent once more.
+	 */
+	'imports.appendRows': async (ctx, args) => {
+		const id = importId(args);
+		if (!Array.isArray(args?.rows) || !args.rows.length) throw new AppError('rows_missing', 'Dávka neobsahuje žádné řádky.');
+		const limit = (await positiveSetting(ctx, 'import.upload_batch_rows')) * 2;
+		if (args.rows.length > limit) throw new AppError('batch_too_large', `Dávka smí mít nejvýše ${limit} řádků.`);
+		const seen = new Set<number>();
+		const rows: { row_no: number; data: RawRow }[] = [];
+		for (const item of args.rows) {
+			const rowNo = Number(item?.rowNo);
+			if (!Number.isInteger(rowNo) || rowNo < 1 || rowNo > 10_000_000) throw new AppError('row_no_invalid', 'Dávka obsahuje neplatné číslo řádku.');
+			if (seen.has(rowNo)) throw new AppError('row_no_invalid', `Řádek ${rowNo} je v dávce dvakrát.`);
+			seen.add(rowNo);
+			// A row that cannot be read is kept (as an empty object marker) and reported by the check.
+			const data = sanitizeRawRow(item?.data);
+			rows.push({ row_no: rowNo, data: data ?? ({ _malformed: true } as unknown as RawRow) });
+		}
+		return inTransaction(ctx, async (tx) => {
+			const imp = await lockImport(tx, id);
+			if (imp.status !== 'uploading') {
+				throw new AppError('import_wrong_status', `Do importu č. ${id} už nejde přidávat řádky (je ${STATUS_LABELS[imp.status]}).`, 409);
+			}
+			await tx.db.run(
+				`insert into import_rows (import_id, row_no, data)
+				 select $1, x.row_no, x.data from jsonb_to_recordset($2::jsonb) as x(row_no integer, data jsonb)
+				 on conflict (import_id, row_no) do update set data = excluded.data, status = 'pending'`,
+				[id, JSON.stringify(rows)]
+			);
+			const received = (await tx.db.one<{ n: number }>('select count(*)::int as n from import_rows where import_id = $1', [id]))!.n;
+			if (received > imp.declared_rows) {
+				throw new AppError('too_many_rows', `Přišlo víc řádků (${received}), než bylo ohlášeno (${imp.declared_rows}).`);
+			}
+			await tx.db.run('update imports set received_rows = $2 where id = $1', [id, received]);
+			return { id, receivedRows: received, declaredRows: imp.declared_rows };
+		});
+	},
+
+	/**
+	 * Checks the next part of the rows; call it again until done is true. The last call marks
+	 * duplicates, splits rows into new / existing and stores the counts.
+	 * args: { id, restart? } (restart checks a validated import again). Returns { done, import }.
+	 */
+	'imports.validate': async (ctx, args) => {
+		const id = importId(args);
+		const chunk = await positiveSetting(ctx, 'import.validate_chunk_rows');
+		return inTransaction(ctx, async (tx) => {
+			let imp = await lockImport(tx, id);
+			if (imp.status === 'uploading') {
+				if (imp.received_rows !== imp.declared_rows) {
+					throw new AppError(
+						'upload_incomplete',
+						`Nahrávání není dokončené: přišlo ${imp.received_rows} z ${imp.declared_rows} řádků. Import zrušte a nahrajte soubor znovu.`,
+						409
+					);
+				}
+				const rules = await loadRules(tx);
+				await tx.db.run(
+					`update imports set status = 'uploaded', uploaded_at = $2, rules = $3::jsonb, validated_rows = 0 where id = $1`,
+					[id, tx.now(), JSON.stringify(rules)]
+				);
+				imp = await lockImport(tx, id);
+			} else if (imp.status === 'validated' && args?.restart === true) {
+				const rules = await loadRules(tx);
+				await tx.db.run(
+					`update import_rows set status = 'pending', ico = null, parsed = null, error_code = null, duplicate_of = null, warnings = null
+					 where import_id = $1`,
+					[id]
+				);
+				await tx.db.run(
+					`update imports set status = 'uploaded', rules = $2::jsonb, validated_rows = 0, validated_at = null,
+						rows_new = null, rows_update = null, rows_duplicate = null, rows_invalid_ico = null, rows_error = null, rows_warning = null
+					 where id = $1`,
+					[id, JSON.stringify(rules)]
+				);
+				imp = await lockImport(tx, id);
+			}
+			if (imp.status === 'validated') return { done: true, import: summary(imp) };
+			if (imp.status !== 'uploaded') {
+				throw new AppError('import_wrong_status', `Import č. ${id} nejde kontrolovat (je ${STATUS_LABELS[imp.status]}).`, 409);
+			}
+			const rules = imp.rules ?? (await loadRules(tx));
+
+			const pending = await tx.db.query<{ row_no: number; data: unknown }>(
+				`select row_no, data from import_rows where import_id = $1 and status = 'pending' order by row_no limit $2`,
+				[id, chunk]
+			);
+			if (pending.length) {
+				const results = pending.map((r) => {
+					const malformed = !!(r.data as { _malformed?: boolean })?._malformed;
+					const res = validateRow(malformed ? null : r.data, rules);
+					return {
+						row_no: r.row_no,
+						status: res.status,
+						ico: res.ico,
+						parsed: res.parsed,
+						error_code: res.errorCode,
+						warnings: res.warnings.length ? res.warnings : null
+					};
+				});
+				await tx.db.run(
+					`update import_rows r set status = x.status, ico = x.ico, parsed = x.parsed, error_code = x.error_code,
+						warnings = x.warnings, duplicate_of = null
+					 from jsonb_to_recordset($2::jsonb) as x(row_no integer, status text, ico char(8), parsed jsonb, error_code text, warnings jsonb)
+					 where r.import_id = $1 and r.row_no = x.row_no`,
+					[id, JSON.stringify(results)]
+				);
+				await tx.db.run('update imports set validated_rows = validated_rows + $2 where id = $1', [id, pending.length]);
+			}
+			const left = (await tx.db.one<{ n: number }>(
+				`select count(*)::int as n from import_rows where import_id = $1 and status = 'pending'`,
+				[id]
+			))!.n;
+			if (left === 0) await finishValidation(tx, await lockImport(tx, id));
+			return { done: left === 0, import: summary(await readImport(tx, id)) };
+		});
+	},
+
+	/**
+	 * Writes the next part of a checked import; call it again until done is true. The first call
+	 * needs confirm: true (the explicit confirmation). Each call is one transaction that also moves
+	 * applied_through_row, so an interrupted write continues where it stopped.
+	 * args: { id, confirm? }. Returns { done, import }.
+	 */
+	'imports.apply': async (ctx, args) => {
+		const id = importId(args);
+		const chunk = await positiveSetting(ctx, 'import.apply_chunk_rows');
+		const result = await inTransaction(ctx, async (tx) => {
+			let imp = await lockImport(tx, id);
+			if (imp.status === 'applied') return { done: true, finishedNow: false, import: summary(imp) };
+			if (imp.status === 'validated') {
+				if (args?.confirm !== true) {
+					throw new AppError('confirm_required', 'Zápis importu je potřeba výslovně potvrdit.', 409);
+				}
+				await tx.db.run(
+					`update imports set status = 'applying', confirmed_at = $2, confirmed_by_name = $3 where id = $1`,
+					[id, tx.now(), tx.actor.name]
+				);
+				await audit(tx, 'import.confirmed', {
+					entity: 'import',
+					entityId: id,
+					description: `Import č. ${id} potvrzen k zápisu (${imp.rows_new ?? 0} nových, ${imp.rows_update ?? 0} existujících IČO)`,
+					details: { filename: imp.filename, new: imp.rows_new, update: imp.rows_update, duplicate: imp.rows_duplicate }
+				});
+				imp = await lockImport(tx, id);
+			}
+			if (imp.status !== 'applying') {
+				throw new AppError('import_wrong_status', `Import č. ${id} nejde zapsat (je ${STATUS_LABELS[imp.status]}).`, 409);
+			}
+
+			const next = await tx.db.one<{ to_row: number | null }>(
+				`select max(row_no) as to_row from (
+					select row_no from import_rows where import_id = $1 and row_no > $2 order by row_no limit $3) s`,
+				[id, imp.applied_through_row, chunk]
+			);
+			if (next?.to_row) {
+				const result = await applyChunk(tx, imp, imp.applied_through_row, next.to_row);
+				await tx.db.run(
+					`update imports set applied_through_row = $2, applied_new = applied_new + $3, applied_updated = applied_updated + $4,
+						applied_unchanged = applied_unchanged + $5, applied_phones = applied_phones + $6 where id = $1`,
+					[id, next.to_row, result.inserted, result.updated, result.unchanged, result.phones]
+				);
+				imp = await lockImport(tx, id);
+			}
+			const left = (await tx.db.one<{ n: number }>(
+				'select count(*)::int as n from import_rows where import_id = $1 and row_no > $2',
+				[id, imp.applied_through_row]
+			))!.n;
+			if (left > 0) return { done: false, finishedNow: false, import: summary(imp) };
+
+			// Finished: clean rows are no longer needed, problem rows stay for the report.
+			await tx.db.run(`delete from import_rows where import_id = $1 and status in ('new', 'update') and warnings is null`, [id]);
+			await tx.db.run(`update imports set status = 'applied', applied_at = $2 where id = $1`, [id, tx.now()]);
+			await audit(tx, 'import.applied', {
+				entity: 'import',
+				entityId: id,
+				description: `Import č. ${id} zapsán: ${imp.applied_new} nových IČO, ${imp.applied_updated} aktualizovaných, ${imp.applied_phones} nových telefonů`,
+				details: {
+					filename: imp.filename,
+					new: imp.applied_new,
+					updated: imp.applied_updated,
+					unchanged: imp.applied_unchanged,
+					phones_added: imp.applied_phones,
+					duplicate: imp.rows_duplicate,
+					invalid_ico: imp.rows_invalid_ico,
+					error: imp.rows_error
+				}
+			});
+			return { done: true, finishedNow: true, import: summary(await readImport(tx, id)) };
+		});
+		// The staged rows of a finished import are gone: give their space back and refresh statistics.
+		if (result.finishedNow) await reclaimSpace(ctx);
+		return { done: result.done, import: result.import };
+	},
+
+	/** Cancels an import that has not been written yet and deletes its staged rows. args: { id } */
+	'imports.cancel': async (ctx, args) => {
+		const id = importId(args);
+		const cancelled = await inTransaction(ctx, async (tx) => {
+			const imp = await lockImport(tx, id);
+			if (!['uploading', 'uploaded', 'validated'].includes(imp.status)) {
+				throw new AppError(
+					'import_wrong_status',
+					imp.status === 'applying'
+						? `Import č. ${id} se už zapisuje. Zrušit nejde, zápis je potřeba dokončit.`
+						: `Import č. ${id} nejde zrušit (je ${STATUS_LABELS[imp.status]}).`,
+					409
+				);
+			}
+			const removed = await tx.db.run('delete from import_rows where import_id = $1', [id]);
+			await tx.db.run(`update imports set status = 'cancelled', cancelled_at = $2, rows_purged_at = $2 where id = $1`, [id, tx.now()]);
+			await audit(tx, 'import.cancelled', {
+				entity: 'import',
+				entityId: id,
+				description: `Import č. ${id} zrušen před zápisem`,
+				details: { filename: imp.filename, previous_status: imp.status, rows_deleted: removed }
+			});
+			return summary(await readImport(tx, id));
+		});
+		await reclaimSpace(ctx);
+		return cancelled;
+	},
+
+	/** History of imports. args: { page?, pageSize? }. Returns { items, total, page, pageSize }. */
+	'imports.list': async (ctx, args) => {
+		await purgeOldRows(ctx);
+		const pageSize = await clampPageSize(ctx.db, args?.pageSize, 20);
+		const page = Math.max(1, Math.floor(Number(args?.page)) || 1);
+		const total = (await ctx.db.one<{ n: number }>('select count(*)::int as n from imports'))!.n;
+		const rows = await ctx.db.query<ImportRow>(
+			`select ${IMPORT_COLUMNS} from imports order by id desc limit $1 offset $2`,
+			[pageSize, (page - 1) * pageSize]
+		);
+		return { items: rows.map(summary), total, page, pageSize };
+	},
+
+	/** One import with its counts. args: { id } */
+	'imports.get': async (ctx, args) => summary(await readImport(ctx, importId(args))),
+
+	/**
+	 * Problem rows of an import for the screen. args: { id, kind: 'invalid_ico' | 'duplicate' | 'error' | 'warning',
+	 * page?, pageSize? }. Returns { items: [{ rowNo, ico, name, problem }], total, page, pageSize }.
+	 */
+	'imports.rows': async (ctx, args) => {
+		const id = importId(args);
+		const kind = args?.kind as ProblemKind;
+		if (!PROBLEM_KINDS.includes(kind)) throw new AppError('kind_invalid', 'Neznámý druh řádků.');
+		await readImport(ctx, id);
+		const pageSize = await clampPageSize(ctx.db, args?.pageSize, 20);
+		const page = Math.max(1, Math.floor(Number(args?.page)) || 1);
+		const where = problemWhere(kind);
+		const total = (await ctx.db.one<{ n: number }>(
+			`select count(*)::int as n from import_rows where import_id = $1 and ${where}`,
+			[id]
+		))!.n;
+		const rows = await ctx.db.query<ProblemRow>(
+			`select row_no, status, data, ico, error_code, duplicate_of, warnings from import_rows
+			 where import_id = $1 and ${where} order by row_no limit $2 offset $3`,
+			[id, pageSize, (page - 1) * pageSize]
+		);
+		return {
+			items: rows.map((r) => ({
+				rowNo: r.row_no,
+				ico: r.ico ?? r.data.ico ?? null,
+				name: r.data.name ?? null,
+				problem:
+					kind === 'warning'
+						? (r.warnings ?? []).map((w) => `${IMPORT_FIELD_LABELS[w.field as ImportField] ?? w.field}: ${warningText(w)} („${w.value}“)`).join('; ')
+						: problemText(r)
+			})),
+			total,
+			page,
+			pageSize
+		};
+	},
+
+	/** Error report as an .xlsx download (invalid IČO, duplicates, other errors, warnings). args: { id } */
+	'imports.report': async (ctx, args) => {
+		const id = importId(args);
+		const imp = await readImport(ctx, id);
+		if (imp.rows_new === null) throw new AppError('import_not_validated', `Import č. ${id} ještě není zkontrolovaný.`, 409);
+		if (imp.rows_purged_at) {
+			throw new AppError('rows_purged', `Řádky importu č. ${id} už byly smazány, report nejde sestavit.`, 409);
+		}
+		const report = await buildReport(ctx, imp);
+		await audit(ctx, 'import.report_downloaded', {
+			entity: 'import',
+			entityId: id,
+			description: `Stažen report chyb importu č. ${id} (${report.rows} řádků)`,
+			details: { filename: imp.filename, rows: report.rows }
+		});
+		return fileResponse(report.body, `import-${id}-report-chyb.xlsx`, XLSX_MIME);
+	}
+};

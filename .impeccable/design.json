@@ -1,0 +1,393 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-20T10:23:15+00:00",
+  "title": "Design System: Lead management A4M",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "primary",
+        "displayName": "A4M Ink",
+        "canonical": "#0b1b33",
+        "tonalRamp": [
+          "oklch(15% 0.06 258)",
+          "oklch(25% 0.06 258)",
+          "oklch(35% 0.06 258)",
+          "oklch(48% 0.06 258)",
+          "oklch(60% 0.06 258)",
+          "oklch(72% 0.06 258)",
+          "oklch(84% 0.06 258)",
+          "oklch(95% 0.06 258)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "A4M Signal Yellow",
+        "canonical": "#f5c518",
+        "tonalRamp": [
+          "oklch(15% 0.16 92)",
+          "oklch(25% 0.16 92)",
+          "oklch(35% 0.16 92)",
+          "oklch(48% 0.16 92)",
+          "oklch(60% 0.16 92)",
+          "oklch(72% 0.16 92)",
+          "oklch(84% 0.16 92)",
+          "oklch(95% 0.16 92)"
+        ]
+      },
+      "accent-50": {
+        "role": "secondary",
+        "displayName": "Selected-Row Cream",
+        "canonical": "#fdf1c8",
+        "tonalRamp": [
+          "oklch(15% 0.07 92)",
+          "oklch(25% 0.07 92)",
+          "oklch(35% 0.07 92)",
+          "oklch(48% 0.07 92)",
+          "oklch(60% 0.07 92)",
+          "oklch(72% 0.07 92)",
+          "oklch(84% 0.07 92)",
+          "oklch(95% 0.07 92)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Cool Ground",
+        "canonical": "#eef2f8",
+        "tonalRamp": [
+          "oklch(15% 0.012 255)",
+          "oklch(25% 0.012 255)",
+          "oklch(35% 0.012 255)",
+          "oklch(48% 0.012 255)",
+          "oklch(60% 0.012 255)",
+          "oklch(72% 0.012 255)",
+          "oklch(84% 0.012 255)",
+          "oklch(95% 0.012 255)"
+        ]
+      },
+      "text-2": {
+        "role": "neutral",
+        "displayName": "Slate Secondary",
+        "canonical": "#3d4a63",
+        "tonalRamp": [
+          "oklch(15% 0.04 262)",
+          "oklch(25% 0.04 262)",
+          "oklch(35% 0.04 262)",
+          "oklch(48% 0.04 262)",
+          "oklch(60% 0.04 262)",
+          "oklch(72% 0.04 262)",
+          "oklch(84% 0.04 262)",
+          "oklch(95% 0.04 262)"
+        ]
+      },
+      "text-3": {
+        "role": "neutral",
+        "displayName": "Quiet Slate",
+        "canonical": "#5f6b80",
+        "tonalRamp": [
+          "oklch(15% 0.03 260)",
+          "oklch(25% 0.03 260)",
+          "oklch(35% 0.03 260)",
+          "oklch(48% 0.03 260)",
+          "oklch(60% 0.03 260)",
+          "oklch(72% 0.03 260)",
+          "oklch(84% 0.03 260)",
+          "oklch(95% 0.03 260)"
+        ]
+      },
+      "glass-fill": {
+        "role": "neutral",
+        "displayName": "Glass White",
+        "canonical": "rgb(255 255 255 / 0.45)"
+      },
+      "plate-fill": {
+        "role": "neutral",
+        "displayName": "Plate White",
+        "canonical": "rgb(255 255 255 / 0.9)"
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page title",
+        "purpose": "Page title on the backdrop and the single big figure."
+      },
+      "title": {
+        "displayName": "Section title",
+        "purpose": "Headings inside plates, inspector and dialog titles."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "Empty-state title."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text, table cells, controls; tabular numerals."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, section-head links, hints."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Table headers, fact-grid terms, tags. Floor size."
+      }
+    },
+    "shadows": [
+      {
+        "name": "glass-light",
+        "value": "inset 1px 1px 0 rgb(255 255 255 / 0.92), inset -1px -1px 0 rgb(255 255 255 / 0.34), inset 2px 3px 6px -2px rgb(255 255 255 / 0.55), inset -2px -3px 6px -3px rgb(11 27 51 / 0.07)",
+        "purpose": "Inner rim light on every glass surface."
+      },
+      {
+        "name": "glass-shadow",
+        "value": "0 1px 2px rgb(11 27 51 / 0.06), 0 16px 36px -14px rgb(11 27 51 / 0.2)",
+        "purpose": "Sidebar, toolbar, inspector."
+      },
+      {
+        "name": "glass-shadow-sm",
+        "value": "0 1px 2px rgb(11 27 51 / 0.06), 0 10px 24px -12px rgb(11 27 51 / 0.22)",
+        "purpose": "Tabs, paging, glass capsules on the backdrop."
+      },
+      {
+        "name": "glass-thin-shadow",
+        "value": "0 0 0 1px rgb(11 27 51 / 0.08), 0 1px 2px rgb(11 27 51 / 0.1), 0 14px 30px -10px rgb(11 27 51 / 0.34)",
+        "purpose": "Floating paging capsule over table rows."
+      },
+      {
+        "name": "plate-shadow",
+        "value": "0 0 0 1px rgb(11 27 51 / 0.04), 0 1px 2px rgb(11 27 51 / 0.04), 0 18px 36px -22px rgb(11 27 51 / 0.22)",
+        "purpose": "Content plates."
+      },
+      {
+        "name": "pop-shadow",
+        "value": "0 2px 6px rgb(11 27 51 / 0.08), 0 28px 60px -20px rgb(11 27 51 / 0.38)",
+        "purpose": "Dialogs and toasts."
+      },
+      {
+        "name": "nav-current-shadow",
+        "value": "0 1px 2px rgb(11 27 51 / 0.08), 0 6px 14px -8px rgb(11 27 51 / 0.24)",
+        "purpose": "Current sidebar item, tab or segment."
+      },
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid #0b1b33; outline-offset: 2px; box-shadow: 0 0 0 2px #f5c518",
+        "purpose": "Global :focus-visible ring."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "All state transitions and entrances."
+      },
+      {
+        "name": "dur-fast",
+        "value": "150ms",
+        "purpose": "Hover and background transitions."
+      },
+      {
+        "name": "dialog-in",
+        "value": "180ms, translateY(6px) scale(0.985) to rest",
+        "purpose": "Dialog entrance with scrim fade."
+      },
+      {
+        "name": "toast-in",
+        "value": "200ms, translateY(8px) to rest",
+        "purpose": "Toast entrance."
+      },
+      {
+        "name": "press",
+        "value": "scale(0.98)",
+        "purpose": "Button active state."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "859.98px"
+      },
+      {
+        "name": "inspector-compact",
+        "value": "1366px"
+      }
+    ],
+    "materials": {
+      "glass": {
+        "background": "rgb(255 255 255 / 0.45)",
+        "border": "1px solid rgb(255 255 255 / 0.62)",
+        "backdropFilter": "blur(28px) saturate(180%)",
+        "purpose": "Navigation and controls only."
+      },
+      "glass-thin": {
+        "background": "rgb(255 255 255 / 0.3)",
+        "border": "1px solid rgb(255 255 255 / 0.7)",
+        "backdropFilter": "blur(5px) saturate(180%)",
+        "textShadow": "0 0 6px rgb(255 255 255 / 0.95), 0 0 2px rgb(255 255 255 / 0.95)",
+        "purpose": "Paging capsule floating over rows."
+      },
+      "backdrop": {
+        "value": "radial-gradient(30% 115% at 0% 40%, rgb(46 96 180 / 0.3) 0%, rgb(46 96 180 / 0.23) 55%, rgb(46 96 180 / 0) 100%), radial-gradient(56% 30% at 22% 0%, rgb(46 96 180 / 0.24) 0%, rgb(46 96 180 / 0.16) 50%, rgb(46 96 180 / 0) 100%), radial-gradient(44% 85% at 100% 62%, rgb(245 197 24 / 0.29) 0%, rgb(245 197 24 / 0.25) 65%, rgb(245 197 24 / 0) 100%), radial-gradient(40% 22% at 54% 100%, rgb(245 197 24 / 0.26) 0%, rgb(245 197 24 / 0.17) 50%, rgb(245 197 24 / 0) 100%) on #eef2f8",
+        "purpose": "The only gradient; fixed behind every screen."
+      },
+      "opaque-fallback": {
+        "glass": "#f3f6fa",
+        "plate": "#ffffff",
+        "purpose": "prefers-reduced-transparency, prefers-contrast: more, or no backdrop-filter."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single yellow action per screen.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Změnit stav</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 18px;border:1px solid transparent;border-radius:22px;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;cursor:pointer;transition:background-color 150ms cubic-bezier(0.16,1,0.3,1),transform 150ms cubic-bezier(0.16,1,0.3,1)} .ds-btn:active{transform:scale(0.98)} .ds-btn:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518} .ds-btn-primary{background:#f5c518;border-color:rgb(11 27 51 / 0.14);color:#0b1b33;box-shadow:inset 0 1px 0 rgb(255 255 255 / 0.55),0 8px 18px -10px rgb(11 27 51 / 0.45)} .ds-btn-primary:hover{background:#ffd43a}"
+    },
+    {
+      "name": "Secondary Button (on plate)",
+      "kind": "button",
+      "refersTo": "button-secondary-on-plate",
+      "description": "White capsule with a hairline on content plates.",
+      "html": "<button class=\"ds-btn2\">Zkusit znovu</button>",
+      "css": ".ds-btn2{display:inline-flex;align-items:center;height:44px;padding:0 18px;border:1px solid rgb(11 27 51 / 0.16);border-radius:22px;background:#fff;color:#0b1b33;box-shadow:0 1px 2px rgb(11 27 51 / 0.06);font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;cursor:pointer;transition:background-color 150ms} .ds-btn2:hover{background:#f3f5f8} .ds-btn2:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Text-only action with a quiet ink wash on hover.",
+      "html": "<button class=\"ds-ghost\">Zrušit</button>",
+      "css": ".ds-ghost{height:44px;padding:0 14px;border:0;border-radius:22px;background:transparent;color:#0b1b33;font:600 15px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;cursor:pointer;transition:background-color 150ms} .ds-ghost:hover{background:rgb(11 27 51 / 0.06)} .ds-ghost:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "44 px capsule input with a 14 px label above.",
+      "html": "<label class=\"ds-field\"><span>Název firmy</span><input placeholder=\"Testovací firma\"></label>",
+      "css": ".ds-field{display:grid;gap:6px;font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-field span{font-size:14px;font-weight:600;color:#4a5670} .ds-field input{height:44px;padding:0 16px;border:1px solid rgb(11 27 51 / 0.2);border-radius:22px;background:#fff;color:#0b1b33;font:inherit;transition:border-color 150ms} .ds-field input::placeholder{color:#55617a} .ds-field input:hover{border-color:rgb(11 27 51 / 0.38)} .ds-field input:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Key and value capsule that opens a filter.",
+      "html": "<button class=\"ds-chip\"><span class=\"ds-k\">Stav</span><span class=\"ds-v\">Vše</span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg></button>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 12px 0 16px;border:1px solid rgb(11 27 51 / 0.1);border-radius:22px;background:rgb(255 255 255 / 0.5);color:#0b1b33;font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;cursor:pointer;transition:background-color 150ms} .ds-chip:hover{background:rgb(255 255 255 / 0.97)} .ds-chip:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518} .ds-k{color:#3d4a63} .ds-v{font-weight:600}"
+    },
+    {
+      "name": "Glass Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Floating glass panel with 44 px capsule items; current item is a brighter capsule.",
+      "html": "<nav class=\"ds-nav\"><a href=\"#\" class=\"ds-cur\">Přehled</a><a href=\"#\">IČO</a><a href=\"#\">Import</a><a href=\"#\">Nastavení</a><a href=\"#\">Audit</a></nav>",
+      "css": ".ds-nav{display:grid;gap:4px;width:232px;padding:12px;border:1px solid rgb(255 255 255 / 0.62);border-radius:24px;background:rgb(255 255 255 / 0.45);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);box-shadow:inset 1px 1px 0 rgb(255 255 255 / 0.92),inset -1px -1px 0 rgb(255 255 255 / 0.34),0 1px 2px rgb(11 27 51 / 0.06),0 16px 36px -14px rgb(11 27 51 / 0.2);font:500 15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-nav a{display:flex;align-items:center;height:44px;padding:0 14px;border-radius:22px;color:#0b1b33;text-decoration:none;transition:background-color 150ms} .ds-nav a:hover{background:rgb(255 255 255 / 0.5)} .ds-nav a.ds-cur{background:rgb(255 255 255 / 0.88);font-weight:600;box-shadow:0 1px 2px rgb(11 27 51 / 0.08),0 6px 14px -8px rgb(11 27 51 / 0.24)} .ds-nav a:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518}"
+    },
+    {
+      "name": "Content Plate",
+      "kind": "card",
+      "refersTo": "plate",
+      "description": "Near-solid white content surface, no blur.",
+      "html": "<section class=\"ds-plate\"><h2>Stavy IČO</h2><p>Testovací obsah na desce.</p></section>",
+      "css": ".ds-plate{padding:22px 24px;border-radius:22px;background:rgb(255 255 255 / 0.9);box-shadow:0 0 0 1px rgb(11 27 51 / 0.04),0 1px 2px rgb(11 27 51 / 0.04),0 18px 36px -22px rgb(11 27 51 / 0.22);color:#0b1b33;font:15px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-plate h2{margin:0 0 8px;font-size:18px;font-weight:700} .ds-plate p{margin:0;color:#4a5670}"
+    },
+    {
+      "name": "State Dot",
+      "kind": "custom",
+      "refersTo": "state-superuser",
+      "description": "10 px filled dot plus the state name; light dots get an ink rim.",
+      "html": "<span class=\"ds-state\"><i style=\"background:#f5c518\"></i>Superuser</span> <span class=\"ds-state\"><i class=\"ds-rim\" style=\"background:#b8bec7\"></i>V poolu</span>",
+      "css": ".ds-state{display:inline-flex;align-items:center;gap:8px;margin-right:16px;color:#0b1b33;font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-state i{width:10px;height:10px;border-radius:50%} .ds-rim{box-shadow:inset 0 0 0 1px rgb(11 27 51 / 0.22)}"
+    },
+    {
+      "name": "Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Outlined 22 px label; strong variant is an ink pill.",
+      "html": "<span class=\"ds-tag\">PO</span> <span class=\"ds-tag ds-tag-a\">Trvá</span>",
+      "css": ".ds-tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid rgb(11 27 51 / 0.3);border-radius:11px;color:#0b1b33;font:600 13px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-tag-a{background:#0b1b33;border-color:#0b1b33;color:#fff}"
+    },
+    {
+      "name": "Floating Paging Capsule",
+      "kind": "custom",
+      "refersTo": "table-row",
+      "description": "Thin glass capsule straddling the table plate's bottom edge.",
+      "html": "<div class=\"ds-pag\"><button aria-label=\"Předchozí\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"m15 18-6-6 6-6\"/></svg></button><span>Strana <b>2</b> z 40</span><button aria-label=\"Další\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"m9 18 6-6-6-6\"/></svg></button></div>",
+      "css": ".ds-pag{display:inline-flex;align-items:center;gap:12px;padding:5px;border:1px solid rgb(255 255 255 / 0.7);border-radius:28px;background:rgb(255 255 255 / 0.3);backdrop-filter:blur(5px) saturate(180%);-webkit-backdrop-filter:blur(5px) saturate(180%);box-shadow:inset 1px 1px 0 rgb(255 255 255 / 0.92),0 0 0 1px rgb(11 27 51 / 0.08),0 1px 2px rgb(11 27 51 / 0.1),0 14px 30px -10px rgb(11 27 51 / 0.34);text-shadow:0 0 6px rgb(255 255 255 / 0.95),0 0 2px rgb(255 255 255 / 0.95);color:#0b1b33;font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif} .ds-pag button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid rgb(11 27 51 / 0.1);border-radius:50%;background:rgb(255 255 255 / 0.42);color:#0b1b33;cursor:pointer;transition:background-color 150ms} .ds-pag button:hover{background:rgb(255 255 255 / 0.97)} .ds-pag button:focus-visible{outline:2px solid #0b1b33;outline-offset:2px;box-shadow:0 0 0 2px #f5c518}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Glass Over the Ledger",
+    "overview": "The tool's controls float as glass over the work, and the data underneath stays solid and legible. Navigation, toolbars, filter chips, tabs, paging, the inspector frame, dialogs and toasts are translucent glass hovering over one calm luminous backdrop; every number, name and date sits on a nearly opaque white plate. The system is Apple's Liquid Glass applied as a functional layer over a data tool, and it is the opposite of glassmorphism: no frosted data tiles, no figures swimming on blur.\n\nThe density is a working desk on a Mac laptop in daylight. Everything a decision needs shares one screen: a floating sidebar, a title row on the backdrop, plates of content, and on the IČO list a table that scrolls under its own floating paging capsule while the company detail opens beside it. Nothing is small: every control is a 44 px capsule, body text is 15 px, table rows are 52 px.\n\nFrom the A4M brand only two colours (ink #0B1B33, yellow #F5C518) and the logo are taken. The portal's \"sharp corners, no shadows\" rules do not apply here: corners are concentric and soft, and depth comes from glass rim light and diffuse ink shadows.",
+    "keyCharacteristics": [
+      "Two materials, strictly separated: glass for navigation and controls, plates for content.",
+      "One backdrop, the only gradient in the app: ink-blue fields left and top, yellow fields right and bottom, on a pale cool ground.",
+      "Yellow is scarce: the one primary capsule per screen and the selected row.",
+      "Every control is a full capsule 44 px high; nothing is smaller.",
+      "State is always a filled dot plus the state name, never colour alone.",
+      "Platform face with tabular numerals everywhere."
+    ],
+    "rules": [
+      {
+        "name": "The Scarce Yellow Rule",
+        "body": "Yellow fills exactly one primary capsule per screen plus the selected table row (as cream). It never colours a heading, a chart band other than the superuser state, or a decorative element.",
+        "section": "colors"
+      },
+      {
+        "name": "The No-Red Rule",
+        "body": "The palette has no red. Errors are ink: bold ink text under the field and a doubled ink border, an ink ring dot on an error toast.",
+        "section": "colors"
+      },
+      {
+        "name": "The Dot-and-Name Rule",
+        "body": "A state is shown as a 10 px filled dot followed by the state name. Colour alone never carries meaning.",
+        "section": "colors"
+      },
+      {
+        "name": "The No-Small-Type Rule",
+        "body": "13 px is the floor and it is reserved for labels that sit next to a larger value. Data and controls are 15 px.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Body text runs with tabular numerals; numbers, IČO and dates also never wrap.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Materials Rule",
+        "body": "Glass (white 45 %, `blur(28px) saturate(180%)`, rim, inner light) is for navigation and controls only. Content always sits on a plate (white 90 %, no blur) or, inside a glass frame, on a sheet (white 94 %).",
+        "section": "elevation"
+      },
+      {
+        "name": "The No Nested Glass Rule",
+        "body": "Glass is never placed inside glass. Controls inside a glass surface become light capsules without a blur of their own; controls on plates become white capsules with a hairline.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Opaque Fallback Rule",
+        "body": "When reduced transparency or more contrast is requested, or backdrop blur is unavailable, glass turns opaque (#f3f6fa) and plates turn fully white.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** put navigation and controls on glass and every piece of data on a plate or sheet.",
+      "**Do** keep every control at 44 px high as a full capsule; use the 44 px circle for icon-only buttons.",
+      "**Do** give each screen exactly one yellow primary capsule; place it last in a footer.",
+      "**Do** show state as a 10 px filled dot plus the state name; add the 22 % ink rim to light dots.",
+      "**Do** use the 4 px spacing scale (4, 8, 12, 16, 24, 32, 48) and the 12 px shell inset.",
+      "**Do** keep radii concentric: panel 24 > plate 22 > sheet 16.",
+      "**Do** use the single global focus ring (2 px ink outline, 2 px yellow inner ring) and draw it inset at scroll edges.",
+      "**Do** keep the backdrop the only gradient, painted once behind everything."
+    ],
+    "donts": [
+      "**Don't** put glass inside glass, or blur behind content plates.",
+      "**Don't** use type smaller than 13 px, or 13 px for anything but labels beside a larger value.",
+      "**Don't** use red, or colour alone, to signal errors or states.",
+      "**Don't** use yellow for decoration, headings or a second button on the same screen.",
+      "**Don't** paint page backgrounds; the fixed backdrop shows through on every screen, including sign-in.",
+      "**Don't** wrap the table in another plate; it draws its own.",
+      "**Don't** use hard offset shadows; every shadow is diffuse and ink-tinted."
+    ]
+  }
+}

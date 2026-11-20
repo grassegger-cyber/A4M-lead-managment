@@ -1,0 +1,27 @@
+node_modules
+node_modules.nosync
+*.nosync
+.svelte-kit
+build
+data
+.env
+.env.*
+.DS_Store
+*.xlsx
+*.xls
+*.csv
+vite.config.ts.timestamp-*
+*.xlsm
+*.xlsb
+*.ods
+*.tsv
+# Local data, also when DATA_DIR points somewhere else inside the repository.
+auth.json*
+pglite/
+pglite.lock
+*.dump
+*.sql
+!supabase/migrations/*.sql
+# iCloud conflict copies ("name 2", "name 2.ext"). Never commit them; tell Thomas when they appear.
+* [0-9]
+* [0-9].*

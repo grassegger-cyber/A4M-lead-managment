@@ -1,0 +1,704 @@
+/* Lead management A4M, look "Liquid Glass" (decided by Thomas 20. 11. 2026).
+   Light appearance only. One backdrop behind the whole app; .glass surfaces for navigation and
+   controls, .plate surfaces for content. From the A4M brand only the colours (ink, yellow) and the
+   logo. Platform type face, tabular numerals. Order: tokens, base elements, utilities, fallbacks. */
+:root {
+	color-scheme: light;
+	accent-color: #0b1b33;
+
+	/* ---------- Colours ---------- */
+	--ink: #0b1b33;
+	--accent: #f5c518;
+	--accent-hover: #ffd43a;
+	/* Selected table row and its hover */
+	--accent-50: #fdf1c8;
+	--accent-100: #fcecb5;
+	--white: #ffffff;
+
+	/* Text. --text-2 is secondary text; glass and the backdrop use the darker value, plates the
+	   lighter one (set by the surface classes below). Every value is at least 4.5:1 on its surface. */
+	--text: #0b1b33;
+	--text-2: #3d4a63;
+	--text-2-plate: #4a5670;
+	--text-3: #5f6b80;
+	--text-placeholder: #55617a;
+	--text-disabled: #5a6680;
+	--icon-quiet: #6b7689;
+
+	/* Hairlines (ink at low opacity, so they work on every surface) */
+	--line: rgb(11 27 51 / 0.08);
+	--line-2: rgb(11 27 51 / 0.1);
+	--line-strong: rgb(11 27 51 / 0.14);
+	--line-field: rgb(11 27 51 / 0.2);
+	--line-tag: rgb(11 27 51 / 0.3);
+	--dot-rim: rgb(11 27 51 / 0.22);
+
+	/* ---------- Backdrop: pale ground with ink-blue and yellow fields ---------- */
+	--ground: #eef2f8;
+	--backdrop:
+		radial-gradient(30% 115% at 0% 40%, rgb(46 96 180 / 0.3) 0%, rgb(46 96 180 / 0.23) 55%, rgb(46 96 180 / 0) 100%),
+		radial-gradient(56% 30% at 22% 0%, rgb(46 96 180 / 0.24) 0%, rgb(46 96 180 / 0.16) 50%, rgb(46 96 180 / 0) 100%),
+		radial-gradient(44% 85% at 100% 62%, rgb(245 197 24 / 0.29) 0%, rgb(245 197 24 / 0.25) 65%, rgb(245 197 24 / 0) 100%),
+		radial-gradient(40% 22% at 54% 100%, rgb(245 197 24 / 0.26) 0%, rgb(245 197 24 / 0.17) 50%, rgb(245 197 24 / 0) 100%);
+	--backdrop-narrow:
+		radial-gradient(60% 70% at 0% 0%, rgb(46 96 180 / 0.42) 0%, rgb(46 96 180 / 0.19) 42%, rgb(46 96 180 / 0) 74%),
+		radial-gradient(55% 65% at 100% 100%, rgb(245 197 24 / 0.44) 0%, rgb(245 197 24 / 0.17) 40%, rgb(245 197 24 / 0) 72%);
+
+	/* ---------- Glass ---------- */
+	--glass-fill: rgb(255 255 255 / 0.45);
+	--glass-fill-strong: rgb(255 255 255 / 0.72);
+	--glass-rim: rgb(255 255 255 / 0.62);
+	--glass-blur: blur(28px) saturate(180%);
+	--glass-light:
+		inset 1px 1px 0 rgb(255 255 255 / 0.92), inset -1px -1px 0 rgb(255 255 255 / 0.34),
+		inset 2px 3px 6px -2px rgb(255 255 255 / 0.55), inset -2px -3px 6px -3px rgb(11 27 51 / 0.07);
+	--glass-shadow: 0 1px 2px rgb(11 27 51 / 0.06), 0 16px 36px -14px rgb(11 27 51 / 0.2);
+	--glass-shadow-sm: 0 1px 2px rgb(11 27 51 / 0.06), 0 10px 24px -12px rgb(11 27 51 / 0.22);
+	/* Thin glass: a capsule that floats over content (paging) */
+	--glass-thin-fill: rgb(255 255 255 / 0.3);
+	--glass-thin-rim: rgb(255 255 255 / 0.7);
+	--glass-thin-blur: blur(5px) saturate(180%);
+	--glass-thin-light: inset 1px 1px 0 rgb(255 255 255 / 0.92), inset -1px -1px 0 rgb(255 255 255 / 0.34);
+	--glass-thin-shadow: 0 0 0 1px rgb(11 27 51 / 0.08), 0 1px 2px rgb(11 27 51 / 0.1), 0 14px 30px -10px rgb(11 27 51 / 0.34);
+	/* White halo behind text on thin glass */
+	--glass-halo: 0 0 6px rgb(255 255 255 / 0.95), 0 0 2px rgb(255 255 255 / 0.95);
+	/* Dialogs and toasts */
+	--pop-shadow: 0 2px 6px rgb(11 27 51 / 0.08), 0 28px 60px -20px rgb(11 27 51 / 0.38);
+	--scrim: rgb(11 27 51 / 0.26);
+
+	/* ---------- Plates (content) ---------- */
+	--plate-fill: rgb(255 255 255 / 0.9);
+	--plate-fill-table: rgb(255 255 255 / 0.92);
+	--plate-shadow: 0 0 0 1px rgb(11 27 51 / 0.04), 0 1px 2px rgb(11 27 51 / 0.04), 0 18px 36px -22px rgb(11 27 51 / 0.22);
+	--plate-pad-y: 22px;
+	--plate-pad-x: 24px;
+	/* Solid sheet inside a glass frame (inspector body, dialog body) */
+	--sheet-fill: rgb(255 255 255 / 0.94);
+	--sheet-edge: 0 0 0 1px rgb(11 27 51 / 0.05);
+
+	/* ---------- Navigation capsules (sidebar, tabs) ---------- */
+	--nav-hover-fill: rgb(255 255 255 / 0.5);
+	--nav-current-fill: rgb(255 255 255 / 0.88);
+	--nav-current-hover-fill: rgb(255 255 255 / 0.97);
+	--nav-current-shadow: 0 1px 2px rgb(11 27 51 / 0.08), 0 6px 14px -8px rgb(11 27 51 / 0.24);
+
+	/* ---------- Controls: 44 px capsules ---------- */
+	--control-h: 44px;
+	/* Old name for compact controls; still 44 px, nothing is smaller. */
+	--control-h-sm: 44px;
+	--radius-control: 22px;
+	/* Secondary buttons, chips and round buttons take these; the surface they sit on sets them.
+	   Default = on the backdrop: a glass capsule of its own. */
+	--control-fill: var(--glass-fill);
+	--control-fill-hover: rgb(255 255 255 / 0.97);
+	--control-border: var(--glass-rim);
+	--control-blur: var(--glass-blur);
+	--control-shadow: var(--glass-light), var(--glass-shadow-sm);
+	/* Text inputs and selects */
+	--field-fill: #ffffff;
+	--field-border: var(--line-field);
+	--field-border-hover: rgb(11 27 51 / 0.38);
+
+	/* ---------- Tables ---------- */
+	--row-h: 52px;
+	--row-bg: #ffffff;
+	--row-hover: #f5f6f7;
+	--row-selected: var(--accent-50);
+	--row-selected-hover: var(--accent-100);
+	--cell-x: 8px;
+	--cell-edge: 20px;
+
+	/* ---------- IČO states: one colour each (keys exactly as in src/lib/states.ts) ---------- */
+	--state-v_poolu: #b8bec7;
+	--state-ve_filtru: #959ba6;
+	--state-u_robota_ocisteni: #f7dd82;
+	--state-superuser: #f5c518;
+	--state-login_oz: #0b1b33;
+	--state-vraceno: #676e7b;
+	--state-odvlastneno: #2a4a80;
+	--state-plovak: #778db8;
+	--state-karantena: #495e8c;
+	--state-ztraceno: #e8ebef;
+	--state-zakaznik: #a07700;
+	--state-neaktivni_ico: #474c55;
+
+	/* ---------- Radii (concentric: panel 24 > plate 22 > sheet 16) ---------- */
+	--radius-panel: 24px;
+	--radius-plate: 22px;
+	--radius-sheet: 16px;
+	--radius-toolbar: 30px;
+	--radius-float: 28px;
+	--radius-tag: 11px;
+	--radius-pill: 999px;
+	/* Old names, kept for screens not yet restyled */
+	--radius-sm: 8px;
+	--radius: 12px;
+	--radius-lg: 22px;
+
+	/* ---------- Shell geometry ---------- */
+	--shell-inset: 12px;
+	--shell-gap: 16px;
+	--sidebar-w: 232px;
+	--vh: 100vh;
+	/* Height a page gets when it fills the window (main has --shell-inset above and below) */
+	--page-h: calc(var(--vh) - 2 * var(--shell-inset));
+	/* Floating paging capsule: its height (measured by Table) and how far it hangs below the plate */
+	--pag-h: 56px;
+	--pag-overhang: 20px;
+
+	/* ---------- Type ---------- */
+	--font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	--font-display: var(--font);
+	--font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+	--text-caps: 13px;
+	--text-small: 14px;
+	--text-body: 15px;
+	--text-lead: 17px;
+	--text-title: 18px;
+	--text-heading: 30px;
+
+	/* ---------- Space ---------- */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+	--space-7: 48px;
+
+	/* ---------- Old palette names, kept for screens not yet restyled ---------- */
+	--grey: #4a5670;
+	--fan: #b8bec7;
+	--muted: #7c879b;
+	--rule: rgb(11 27 51 / 0.09);
+	--tint: #f5f6f7;
+	--shadow-sm: var(--plate-shadow);
+	--shadow-md: var(--glass-shadow);
+	--shadow-lg: var(--pop-shadow);
+
+	/* ---------- Motion and layers ---------- */
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--dur-fast: 150ms;
+	--z-sticky: 10;
+	--z-nav: 20;
+	--z-dialog: 30;
+	--z-toast: 40;
+}
+
+@supports (height: 100dvh) {
+	:root {
+		--vh: 100dvh;
+	}
+}
+
+/* ---------- Base ---------- */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: rgb(11 27 51 / 0.3) transparent;
+}
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	border: 3px solid transparent;
+	border-radius: 5px;
+	background: rgb(11 27 51 / 0.3);
+	background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+	background-color: rgb(11 27 51 / 0.45);
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	background-color: var(--ground);
+}
+
+body {
+	margin: 0;
+	min-height: var(--vh);
+	color: var(--text);
+	font-family: var(--font);
+	font-size: var(--text-body);
+	line-height: 1.35;
+	font-variant-numeric: tabular-nums;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* The backdrop is a fixed layer: it stays put while a long page scrolls, and glass blurs it. */
+body::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	background-color: var(--ground);
+	background-image: var(--backdrop);
+}
+
+h1,
+h2,
+h3,
+h4 {
+	margin: 0;
+	color: var(--ink);
+	font-family: var(--font);
+}
+h1,
+.page-title {
+	font-size: var(--text-heading);
+	line-height: 1.15;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	text-wrap: balance;
+}
+h2,
+.section-title {
+	font-size: var(--text-title);
+	line-height: 1.2;
+	font-weight: 700;
+	text-wrap: balance;
+}
+h3 {
+	font-size: var(--text-body);
+	line-height: 1.3;
+	font-weight: 700;
+}
+h4 {
+	font-size: var(--text-small);
+	line-height: 1.3;
+	font-weight: 700;
+}
+/* Headings are bold as a whole; a <strong> inside must not go heavier. */
+:is(h1, h2, h3, h4, .page-title, .section-title) strong {
+	font-weight: inherit;
+}
+strong,
+b {
+	font-weight: 600;
+}
+
+p {
+	margin: 0;
+	line-height: 1.45;
+}
+
+a {
+	color: var(--ink);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+	text-decoration-color: rgb(11 27 51 / 0.3);
+}
+a:hover {
+	text-decoration-color: var(--ink);
+}
+
+::selection {
+	background: var(--accent);
+	color: var(--ink);
+}
+
+/* One focus ring everywhere: ink outline with a yellow inner ring. A component that needs the
+   ring elsewhere (inside a scroll edge, on a wrapper) overrides it with a more specific
+   !important rule. */
+:focus-visible {
+	outline: 2px solid var(--ink) !important;
+	outline-offset: 2px;
+	box-shadow: 0 0 0 2px var(--accent) !important;
+}
+
+svg.lucide {
+	stroke-width: 1.75;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+	color: inherit;
+}
+input,
+textarea {
+	caret-color: var(--ink);
+}
+button {
+	cursor: pointer;
+}
+::placeholder {
+	color: var(--text-placeholder);
+	opacity: 1;
+}
+
+code,
+pre {
+	font-family: var(--font-mono);
+	font-size: var(--text-caps);
+}
+
+/* ---------- Text helpers ---------- */
+
+.visually-hidden {
+	position: absolute !important;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* Numbers, IČO, dates: tabular digits, no wrapping */
+.num {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.text-muted {
+	color: var(--text-2);
+}
+
+/* Quiet label above a value */
+.label-caps {
+	font-size: var(--text-caps);
+	font-weight: 600;
+	color: var(--text-2);
+}
+
+/* ---------- Surfaces ---------- */
+
+/* Glass: navigation and controls over the backdrop. Never put glass inside glass. */
+.glass {
+	background: var(--glass-fill);
+	border: 1px solid var(--glass-rim);
+	border-radius: var(--radius-panel);
+	-webkit-backdrop-filter: var(--glass-blur);
+	backdrop-filter: var(--glass-blur);
+	box-shadow: var(--glass-light), var(--glass-shadow);
+}
+
+/* Plate: content. Opaque enough to read, no blur. .panel is the old name. */
+.plate,
+.panel {
+	background: var(--plate-fill);
+	border-radius: var(--radius-plate);
+	box-shadow: var(--plate-shadow);
+}
+.panel-pad {
+	padding: var(--plate-pad-y) var(--plate-pad-x);
+}
+
+/* Sheet: the solid content area inside a glass frame (inspector, dialog). */
+.sheet {
+	background: var(--sheet-fill);
+	border-radius: var(--radius-sheet);
+	box-shadow: var(--sheet-edge);
+}
+
+/* Controls inside glass: lighter capsules without a blur of their own. */
+.glass,
+.toolbar,
+.tabs {
+	--control-fill: rgb(255 255 255 / 0.5);
+	--control-fill-hover: rgb(255 255 255 / 0.97);
+	--control-border: var(--line-2);
+	--control-blur: none;
+	--control-shadow: none;
+	--field-fill: rgb(255 255 255 / 0.6);
+	--field-border: var(--line-2);
+	--field-border-hover: rgb(11 27 51 / 0.26);
+	--text-2: #3d4a63;
+}
+/* Controls on plates and sheets: white capsules with a hairline. */
+.plate,
+.panel,
+.sheet {
+	--control-fill: #ffffff;
+	--control-fill-hover: #f3f5f8;
+	--control-border: rgb(11 27 51 / 0.16);
+	--control-blur: none;
+	--control-shadow: 0 1px 2px rgb(11 27 51 / 0.06);
+	--field-fill: #ffffff;
+	--field-border: var(--line-field);
+	--field-border-hover: rgb(11 27 51 / 0.38);
+	--text-2: var(--text-2-plate);
+}
+
+/* ---------- Page and section heads ---------- */
+
+/* Title row on the backdrop: title (and key figures) left, actions right. The left inset lines
+   the title up with the text inside the plates below. */
+.page-head {
+	flex-shrink: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2) var(--space-6);
+	min-height: 52px;
+	padding-left: var(--plate-pad-x);
+}
+.page-head .actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* Heading row inside a plate: heading left, a link or button right. */
+.section-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+}
+.section-head > a {
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--control-h);
+	font-size: var(--text-small);
+	font-weight: 600;
+}
+
+/* ---------- Fact grid (<dl>) ----------
+   dt/dd pairs as direct children: label left, value right.
+   <div><dt/><dd/></div> children: label above value, in var(--facts-cols, 2) columns;
+   a <div class="wide"> takes the whole row. */
+.facts {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	align-items: baseline;
+	gap: var(--space-2) var(--space-5);
+	margin: 0;
+}
+.facts:has(> div) {
+	grid-template-columns: repeat(var(--facts-cols, 2), minmax(0, 1fr));
+	align-items: start;
+	gap: var(--space-3) var(--space-4);
+}
+.facts > div {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.facts > .wide {
+	grid-column: 1 / -1;
+}
+.facts dt {
+	font-size: var(--text-caps);
+	color: var(--text-2);
+}
+.facts dd {
+	margin: 0;
+	min-width: 0;
+}
+
+/* Small outlined label (subject type, "Hlavní", "Ručně přepsáno"); .accent is the strong one. */
+.tag {
+	display: inline-flex;
+	align-items: center;
+	height: 22px;
+	padding: 0 8px;
+	border: 1px solid var(--line-tag);
+	border-radius: var(--radius-tag);
+	background: transparent;
+	color: var(--ink);
+	font-size: var(--text-caps);
+	font-weight: 600;
+	line-height: 1;
+	white-space: nowrap;
+}
+.tag.accent {
+	background: var(--ink);
+	border-color: var(--ink);
+	color: var(--white);
+}
+
+/* ---------- Toolbar capsule: search and filters above a list ---------- */
+.toolbar {
+	flex-shrink: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 7px;
+	border: 1px solid var(--glass-rim);
+	border-radius: var(--radius-toolbar);
+	background: var(--glass-fill);
+	-webkit-backdrop-filter: var(--glass-blur);
+	backdrop-filter: var(--glass-blur);
+	box-shadow: var(--glass-light), var(--glass-shadow);
+}
+
+/* ---------- Filter chip: <button class="chip"><span class="chip-key">Stav</span>
+   <span class="chip-value">Vše</span><ChevronDown size={16} /></button> ---------- */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: var(--control-h);
+	padding: 0 12px 0 16px;
+	border: 1px solid var(--control-border);
+	border-radius: var(--radius-control);
+	background: var(--control-fill);
+	-webkit-backdrop-filter: var(--control-blur);
+	backdrop-filter: var(--control-blur);
+	box-shadow: var(--control-shadow);
+	color: var(--ink);
+	font: inherit;
+	white-space: nowrap;
+	text-decoration: none;
+	cursor: pointer;
+	transition: background-color var(--dur-fast) var(--ease-out);
+}
+.chip:hover:not(:disabled),
+.chip[aria-expanded='true'] {
+	background: var(--control-fill-hover);
+}
+.chip-key {
+	color: var(--text-2);
+}
+.chip-value {
+	font-weight: 600;
+}
+.chip:disabled {
+	background: transparent;
+	color: var(--text-disabled);
+	cursor: not-allowed;
+}
+.chip:disabled .chip-key {
+	color: inherit;
+}
+
+/* ---------- Tabs: page sections on the backdrop (role="tablist" with role="tab" buttons) ---------- */
+.tabs {
+	flex-shrink: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	width: fit-content;
+	max-width: 100%;
+	padding: 5px;
+	border: 1px solid var(--glass-rim);
+	border-radius: var(--radius-float);
+	background: var(--glass-fill);
+	-webkit-backdrop-filter: var(--glass-blur);
+	backdrop-filter: var(--glass-blur);
+	box-shadow: var(--glass-light), var(--glass-shadow-sm);
+}
+
+/* ---------- Segmented control: a choice inside a plate (role="tablist"/"radiogroup" or
+   aria-pressed buttons) ---------- */
+.segmented {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	max-width: 100%;
+	padding: 4px;
+	border-radius: 26px;
+	background: rgb(11 27 51 / 0.06);
+	box-shadow: inset 0 0 0 1px rgb(11 27 51 / 0.05);
+}
+
+.tabs > :is(button, a, label),
+.segmented > :is(button, a, label) {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--dur-fast) var(--ease-out);
+}
+.segmented > :is(button, a, label) {
+	padding: 0 16px;
+}
+.tabs > :is(button, a, label):hover:not(:disabled) {
+	background: var(--nav-hover-fill);
+}
+.segmented > :is(button, a, label):hover:not(:disabled) {
+	background: rgb(255 255 255 / 0.6);
+}
+.tabs > :is([aria-selected='true'], [aria-current='page'], [aria-pressed='true'], .active),
+.segmented > :is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], .active, :has(input:checked)) {
+	background: var(--nav-current-fill);
+	box-shadow: var(--nav-current-shadow);
+	font-weight: 600;
+}
+.tabs > :is([aria-selected='true'], [aria-current='page'], [aria-pressed='true'], .active):hover:not(:disabled),
+.segmented
+	> :is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], .active, :has(input:checked)):hover:not(:disabled) {
+	background: var(--nav-current-hover-fill);
+}
+.segmented > :is([aria-selected='true'], [aria-checked='true'], [aria-pressed='true'], [aria-current='page'], .active, :has(input:checked)) {
+	background: #ffffff;
+}
+.tabs > :disabled,
+.segmented > :disabled {
+	color: var(--text-disabled);
+	cursor: default;
+}
+
+/* ---------- Fallbacks ---------- */
+
+@media (max-width: 859.98px) {
+	body::before {
+		background-image: var(--backdrop-narrow);
+	}
+}
+
+/* No translucency wanted, more contrast wanted, or no backdrop blur available: opaque surfaces. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+	:root {
+		--glass-fill: #f3f6fa;
+		--glass-fill-strong: #ffffff;
+		--glass-thin-fill: #f3f6fa;
+		--glass-blur: none;
+		--glass-thin-blur: none;
+		--glass-halo: none;
+		--plate-fill: #ffffff;
+		--plate-fill-table: #ffffff;
+		--sheet-fill: #ffffff;
+	}
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	:root {
+		--glass-fill: #f3f6fa;
+		--glass-fill-strong: #ffffff;
+		--glass-thin-fill: #f3f6fa;
+		--glass-halo: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 1ms !important;
+		transition-duration: 1ms !important;
+	}
+}
