@@ -1,5 +1,5 @@
 /* Lead management A4M, look "Liquid Glass" (decided by Thomas 20. 11. 2026).
-   Light appearance only. One backdrop behind the whole app; .glass surfaces for navigation and
+   Light appearance only. One neutral backdrop behind the whole app; .glass surfaces for navigation and
    controls, .plate surfaces for content. From the A4M brand only the colours (ink, yellow) and the
    logo. Platform type face, tabular numerals. Order: tokens, base elements, utilities, fallbacks. */
 :root {
@@ -33,16 +33,11 @@
 	--line-tag: rgb(11 27 51 / 0.3);
 	--dot-rim: rgb(11 27 51 / 0.22);
 
-	/* ---------- Backdrop: pale ground with ink-blue and yellow fields ---------- */
-	--ground: #eef2f8;
-	--backdrop:
-		radial-gradient(30% 115% at 0% 40%, rgb(46 96 180 / 0.3) 0%, rgb(46 96 180 / 0.23) 55%, rgb(46 96 180 / 0) 100%),
-		radial-gradient(56% 30% at 22% 0%, rgb(46 96 180 / 0.24) 0%, rgb(46 96 180 / 0.16) 50%, rgb(46 96 180 / 0) 100%),
-		radial-gradient(44% 85% at 100% 62%, rgb(245 197 24 / 0.29) 0%, rgb(245 197 24 / 0.25) 65%, rgb(245 197 24 / 0) 100%),
-		radial-gradient(40% 22% at 54% 100%, rgb(245 197 24 / 0.26) 0%, rgb(245 197 24 / 0.17) 50%, rgb(245 197 24 / 0) 100%);
-	--backdrop-narrow:
-		radial-gradient(60% 70% at 0% 0%, rgb(46 96 180 / 0.42) 0%, rgb(46 96 180 / 0.19) 42%, rgb(46 96 180 / 0) 74%),
-		radial-gradient(55% 65% at 100% 100%, rgb(245 197 24 / 0.44) 0%, rgb(245 197 24 / 0.17) 40%, rgb(245 197 24 / 0) 72%);
+	/* ---------- Backdrop: one clean neutral grey, a barely visible top-to-bottom shade ----------
+	   (Thomas, 20. 11. 2026: no multi-colour gradient, clean and as close to Apple as possible.) */
+	--ground: #f2f3f5;
+	--backdrop: linear-gradient(180deg, #f7f8fa 0%, #eef0f3 100%);
+	--backdrop-narrow: var(--backdrop);
 
 	/* ---------- Glass ---------- */
 	--glass-fill: rgb(255 255 255 / 0.45);

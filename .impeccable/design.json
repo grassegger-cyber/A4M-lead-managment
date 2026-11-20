@@ -51,8 +51,8 @@
       },
       "ground": {
         "role": "neutral",
-        "displayName": "Cool Ground",
-        "canonical": "#eef2f8",
+        "displayName": "Neutral Ground",
+        "canonical": "#f2f3f5",
         "tonalRamp": [
           "oklch(15% 0.012 255)",
           "oklch(25% 0.012 255)",
@@ -225,7 +225,7 @@
         "purpose": "Paging capsule floating over rows."
       },
       "backdrop": {
-        "value": "radial-gradient(30% 115% at 0% 40%, rgb(46 96 180 / 0.3) 0%, rgb(46 96 180 / 0.23) 55%, rgb(46 96 180 / 0) 100%), radial-gradient(56% 30% at 22% 0%, rgb(46 96 180 / 0.24) 0%, rgb(46 96 180 / 0.16) 50%, rgb(46 96 180 / 0) 100%), radial-gradient(44% 85% at 100% 62%, rgb(245 197 24 / 0.29) 0%, rgb(245 197 24 / 0.25) 65%, rgb(245 197 24 / 0) 100%), radial-gradient(40% 22% at 54% 100%, rgb(245 197 24 / 0.26) 0%, rgb(245 197 24 / 0.17) 50%, rgb(245 197 24 / 0) 100%) on #eef2f8",
+        "value": "linear-gradient(180deg, #f7f8fa 0%, #eef0f3 100%) on #f2f3f5",
         "purpose": "The only gradient; fixed behind every screen."
       },
       "opaque-fallback": {
@@ -322,7 +322,7 @@
     "overview": "The tool's controls float as glass over the work, and the data underneath stays solid and legible. Navigation, toolbars, filter chips, tabs, paging, the inspector frame, dialogs and toasts are translucent glass hovering over one calm luminous backdrop; every number, name and date sits on a nearly opaque white plate. The system is Apple's Liquid Glass applied as a functional layer over a data tool, and it is the opposite of glassmorphism: no frosted data tiles, no figures swimming on blur.\n\nThe density is a working desk on a Mac laptop in daylight. Everything a decision needs shares one screen: a floating sidebar, a title row on the backdrop, plates of content, and on the IČO list a table that scrolls under its own floating paging capsule while the company detail opens beside it. Nothing is small: every control is a 44 px capsule, body text is 15 px, table rows are 52 px.\n\nFrom the A4M brand only two colours (ink #0B1B33, yellow #F5C518) and the logo are taken. The portal's \"sharp corners, no shadows\" rules do not apply here: corners are concentric and soft, and depth comes from glass rim light and diffuse ink shadows.",
     "keyCharacteristics": [
       "Two materials, strictly separated: glass for navigation and controls, plates for content.",
-      "One backdrop, the only gradient in the app: ink-blue fields left and top, yellow fields right and bottom, on a pale cool ground.",
+      "One backdrop, the only gradient in the app: a clean neutral grey with a barely visible top-to-bottom shade, as in Apple's own apps. No colour fields.",
       "Yellow is scarce: the one primary capsule per screen and the selected row.",
       "Every control is a full capsule 44 px high; nothing is smaller.",
       "State is always a filled dot plus the state name, never colour alone.",

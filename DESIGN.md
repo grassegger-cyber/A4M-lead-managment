@@ -8,7 +8,7 @@ colors:
   accent-50: "#fdf1c8"
   accent-100: "#fcecb5"
   white: "#ffffff"
-  ground: "#eef2f8"
+  ground: "#f2f3f5"
   text-2: "#3d4a63"
   text-2-plate: "#4a5670"
   text-3: "#5f6b80"
@@ -179,7 +179,7 @@ From the A4M brand only two colours (ink #0B1B33, yellow #F5C518) and the logo a
 
 **Key Characteristics:**
 - Two materials, strictly separated: glass for navigation and controls, plates for content.
-- One backdrop, the only gradient in the app: ink-blue fields left and top, yellow fields right and bottom, on a pale cool ground.
+- One backdrop, the only gradient in the app: a clean neutral grey with a barely visible top-to-bottom shade (#f7f8fa to #eef0f3), as in Apple's own apps. No colour fields (Thomas, 20. 11. 2026).
 - Yellow is scarce: the one primary capsule per screen and the selected row.
 - Every control is a full capsule 44 px high; nothing is smaller.
 - State is always a filled dot plus the state name, never colour alone.
@@ -197,7 +197,7 @@ A cool, nearly monochrome ink-on-white palette lit by a single warm yellow.
 - **Selected-Row Cream** (`accent-50`, hover `accent-100`): the background of the selected table row, the only other place yellow appears.
 
 ### Neutral
-- **Cool Ground** (`ground`): the pale base under the backdrop gradients, and the page colour when the backdrop is not painted.
+- **Neutral Ground** (`ground`): the clean grey page colour under the backdrop shade, and the page colour when the backdrop is not painted.
 - **Slate Secondary** (`text-2` on the backdrop and glass, `text-2-plate` on plates): secondary text, field labels, table header labels, chip keys. The surface sets which one applies, so every pairing stays at 4.5:1 or better.
 - **Quiet Slate** (`text-3`): the empty-value dash and other tertiary text. `text-placeholder` and `text-disabled` are its siblings for inputs and disabled controls.
 - **Ink Hairlines** (`line` 8 %, `line-2` 10 %, `line-strong` 14 %, `line-field` 20 %): row separators, control borders on glass and the pinned-column edge, the table header rule, field borders on plates. Always ink at low opacity, so one line works on every surface.
