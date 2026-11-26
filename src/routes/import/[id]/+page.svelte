@@ -295,6 +295,16 @@
 						<p class="text-muted">Kontrola do databáze nic nezapisuje.</p>
 					{/if}
 				</div>
+			{:else if imp.status === 'uploading' && imp.receivedRows === imp.declaredRows}
+				<div class="panel">
+					<EmptyState
+						title="Kontrola se nedokončila"
+						text="Všech {formatNumber(imp.receivedRows)} řádků je na serveru, ale kontrola neproběhla. Zkuste ji spustit znovu; do databáze se zatím nic nezapsalo."
+					>
+						<Button onclick={() => runValidation(false)}>Zkontrolovat znovu</Button>
+						<Button variant="secondary" onclick={() => (cancelOpen = true)}>Zrušit import</Button>
+					</EmptyState>
+				</div>
 			{:else if imp.status === 'uploading'}
 				<div class="panel">
 					<EmptyState
