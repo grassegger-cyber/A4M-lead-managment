@@ -34,7 +34,9 @@ const DATE_RANGES = [
 	['quarantineUntil', 'quarantine_until']
 ] as const;
 /** Ranges over verification timestamps (IČO in ARES, operator of a phone number). */
-const VERIFIED_RANGES = ['icoVerified', 'operatorVerified'] as const;
+const VERIFIED_RANGES = ['icoVerified', 'operatorVerified', 'stateVerified'] as const;
+/** Kinds of information that can be filtered as "never verified". */
+const FRESHNESS_KINDS = ['state', 'phone', 'ico'] as const;
 type DateRangeKey = (typeof DATE_RANGES)[number][0] | (typeof VERIFIED_RANGES)[number];
 
 /** A timestamp belongs to the calendar day it has in Czech time (the database session runs in UTC). */
@@ -58,6 +60,10 @@ export interface CompanyFilter {
 	roundsMax: number | null;
 	neverReturn: boolean | null;
 	icoValid: 'yes' | 'no' | 'unknown' | null;
+	/** 'yes' = has at least one phone number, 'no' = has none. */
+	hasPhone: 'yes' | 'no' | null;
+	/** Information that was never verified: 'state', 'phone' (no number with a verified operator), 'ico'. */
+	unverified: string[];
 }
 
 function invalid(what: string): never {
@@ -128,7 +134,11 @@ export function parseFilter(args: any): CompanyFilter {
 	if (icoValid !== null && !['yes', 'no', 'unknown'].includes(icoValid)) invalid('platnost IČO');
 	const neverReturn =
 		f.neverReturn === true || f.neverReturn === 'yes' ? true : f.neverReturn === false || f.neverReturn === 'no' ? false : null;
+	const hasPhone = f.hasPhone === 'yes' || f.hasPhone === 'no' ? f.hasPhone : null;
+	if (f.hasPhone !== undefined && f.hasPhone !== null && f.hasPhone !== '' && hasPhone === null) invalid('kontakt');
 	return {
+		hasPhone,
+		unverified: listOf(f.unverified, FRESHNESS_KINDS, 'neověřené údaje'),
 		search,
 		state: listOf(f.state, STATES, 'stav'),
 		holderType: listOf(f.holderType, HOLDER_TYPES, 'držitel'),
@@ -221,6 +231,17 @@ export function buildWhere(filter: CompanyFilter): Where {
 	if (operatorVerified?.to) phone.push(`ph.operator_verified_at < ${dayAfter(operatorVerified.to)}`);
 	if (phone.length) conditions.push(`c.ico in (select ph.ico from company_phones ph where ${phone.join(' and ')})`);
 
+	if (filter.hasPhone === 'yes') conditions.push('exists (select 1 from company_phones hp where hp.ico = c.ico)');
+	if (filter.hasPhone === 'no') conditions.push('not exists (select 1 from company_phones hp where hp.ico = c.ico)');
+	if (filter.unverified.includes('state')) conditions.push('c.state_verified_at is null');
+	if (filter.unverified.includes('ico')) conditions.push('c.ico_verified_at is null');
+	if (filter.unverified.includes('phone')) {
+		conditions.push('not exists (select 1 from company_phones vp where vp.ico = c.ico and vp.operator_verified_at is not null)');
+	}
+	const stateVerified = filter.dates.stateVerified;
+	if (stateVerified?.from) conditions.push(`c.state_verified_at >= ${dayStart(stateVerified.from)}`);
+	if (stateVerified?.to) conditions.push(`c.state_verified_at < ${dayAfter(stateVerified.to)}`);
+
 	const icoVerified = filter.dates.icoVerified;
 	if (icoVerified?.from) conditions.push(`c.ico_verified_at >= ${dayStart(icoVerified.from)}`);
 	if (icoVerified?.to) conditions.push(`c.ico_verified_at < ${dayAfter(icoVerified.to)}`);
@@ -286,7 +307,8 @@ function orderBy(sort: unknown): { sql: string; key: string; dir: 'asc' | 'desc'
 // Columns of the list. Fixed set; the detail and the export return more.
 const LIST_COLUMNS = `c.ico, c.name, c.subject_type, c.state, c.holder_type, c.holder_login, c.region_code,
 	c.region_name, c.district_code, c.district_name, c.sales_rep_id, c.cohort_id, c.channel, c.owned_from,
-	c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return, c.rounds_count, c.ico_valid`;
+	c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return, c.rounds_count, c.ico_valid,
+	c.state_verified_at, c.ico_verified_at`;
 
 /** Calendar day in Czech time, wherever the server runs (the cloud function runs in UTC). */
 function localIsoDate(d: Date): string {
@@ -355,6 +377,8 @@ const EXPORT_COLUMNS: { header: string; key: string; width: number; date?: boole
 	{ header: 'Telefony', key: 'phones', width: 34 },
 	{ header: 'Operátor', key: 'operators', width: 16 },
 	{ header: 'Operátor ověřen', key: 'operator_verified_on', width: 15, date: true },
+	{ header: 'Telefon přidán', key: 'phone_added_on', width: 15, date: true },
+	{ header: 'Stav ověřen', key: 'state_verified_on', width: 13, date: true },
 	{ header: 'IČO platné', key: 'ico_valid', width: 11 },
 	{ header: 'IČO ověřeno', key: 'ico_verified_on', width: 13, date: true },
 	{ header: 'Založeno', key: 'founded_on', width: 12, date: true },
@@ -394,7 +418,7 @@ export const methods: MethodMap = {
 		const rows = await ctx.db.query(
 			`select c.*, r.name as sales_rep_name, co.code as cohort_code,
 				ph.primary_phone, ph.primary_operator, coalesce(ph.operators, '{}') as operators,
-				coalesce(ph.phone_count, 0) as phone_count
+				coalesce(ph.phone_count, 0) as phone_count, ph.phone_added_at, ph.phone_verified_at
 			 from (
 				select ${LIST_COLUMNS}, c.name_search, c.updated_at
 				from companies c ${where.sql}
@@ -406,7 +430,8 @@ export const methods: MethodMap = {
 				select (array_agg(p.phone order by p.is_primary desc, p.id))[1] as primary_phone,
 					(array_agg(p.operator order by p.is_primary desc, p.id))[1] as primary_operator,
 					array_agg(coalesce(p.operator, '${NONE}') order by p.is_primary desc, p.id) as operators,
-					count(*)::int as phone_count
+					count(*)::int as phone_count,
+					max(p.created_at) as phone_added_at, max(p.operator_verified_at) as phone_verified_at
 				from company_phones p where p.ico = c.ico
 			 ) ph on true
 			 order by ${order.sql}`,
@@ -447,7 +472,7 @@ export const methods: MethodMap = {
 		const ico = requireIco(args?.ico);
 		const company = await ctx.db.one<Record<string, unknown> & { state: string }>(
 			`select c.ico, c.name, c.subject_type, c.legal_form_code, c.region_code, c.region_name, c.district_code,
-				c.district_name, c.nace_codes, c.founded_on, c.dissolved_on, c.ico_valid, c.ico_verified_at, c.state,
+				c.district_name, c.nace_codes, c.founded_on, c.dissolved_on, c.ico_valid, c.ico_verified_at, c.state_verified_at, c.state,
 				c.holder_type, c.holder_login, c.sales_rep_id, c.owned_from, c.ownership_ends_on, c.cohort_id, c.channel,
 				c.rounds_count, c.return_on, c.return_path, c.quarantine_until, c.never_return, c.return_on_overridden,
 				c.return_on_override_note, c.quarantine_overridden, c.quarantine_override_note, c.ca_number, c.siebel_owner,
@@ -757,12 +782,14 @@ export const methods: MethodMap = {
 		const n = where.params.length;
 		const keyset = `${where.sql ? `${where.sql} and` : 'where'} c.ico > $${n + 1}::char(8)`;
 		const rows = await ctx.db.query<Record<string, any>>(
-			`select c.*, r.name as sales_rep_name, co.code as cohort_code, ph.phones, ph.operators, ph.operator_verified_on
+			`select c.*, r.name as sales_rep_name, co.code as cohort_code, ph.phones, ph.operators, ph.operator_verified_on,
+				ph.phone_added_on
 			 from (
 				select c.ico, c.name, c.subject_type, c.state, c.holder_type, c.holder_login, c.sales_rep_id, c.cohort_id,
 					c.channel, c.owned_from, c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return,
 					c.rounds_count, c.region_name, c.district_name, c.ico_valid,
 					(c.ico_verified_at at time zone '${TIME_ZONE}')::date as ico_verified_on,
+					(c.state_verified_at at time zone '${TIME_ZONE}')::date as state_verified_on,
 					c.founded_on, c.nace_codes
 				from companies c ${keyset} order by c.ico limit ${EXPORT_CHUNK}
 			 ) c
@@ -771,7 +798,8 @@ export const methods: MethodMap = {
 			 left join lateral (
 				select string_agg(p.phone, ', ' order by p.is_primary desc, p.id) as phones,
 					string_agg(coalesce(p.operator, '?'), ', ' order by p.is_primary desc, p.id) as operators,
-					(max(p.operator_verified_at) at time zone '${TIME_ZONE}')::date as operator_verified_on
+					(max(p.operator_verified_at) at time zone '${TIME_ZONE}')::date as operator_verified_on,
+					(max(p.created_at) at time zone '${TIME_ZONE}')::date as phone_added_on
 				from company_phones p where p.ico = c.ico
 			 ) ph on true
 			 order by c.ico`,
@@ -805,6 +833,8 @@ export const methods: MethodMap = {
 							.join(', ')
 					: '',
 				operator_verified_on: row.operator_verified_on ?? null,
+				phone_added_on: row.phone_added_on ?? null,
+				state_verified_on: row.state_verified_on ?? null,
 				ico_valid: yesNo(row.ico_valid),
 				ico_verified_on: row.ico_verified_on ?? null,
 				founded_on: row.founded_on ?? null,

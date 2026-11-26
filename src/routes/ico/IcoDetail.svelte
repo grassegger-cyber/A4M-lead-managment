@@ -43,6 +43,7 @@
 		dissolved_on: string | null;
 		ico_valid: boolean | null;
 		ico_verified_at: string | null;
+		state_verified_at: string | null;
 		state: CompanyState;
 		holder_type: HolderType;
 		holder_login: string | null;
@@ -357,6 +358,7 @@
 	<h3>Vlastnictví</h3>
 	<dl class="facts">
 		<div><dt>Stav</dt><dd><StateDot state={c.state} /></dd></div>
+		<div><dt>Stav ověřen</dt><dd class="num" class:none={!c.state_verified_at}>{c.state_verified_at ? formatDate(c.state_verified_at) : 'neověřeno'}</dd></div>
 		<div>
 			<dt>Držitel</dt>
 			<dd>{HOLDER_LABELS[c.holder_type] ?? c.holder_type}{#if holderDetail(c.holder_type, c.holder_login)}<span class="text-muted">&nbsp;· {holderDetail(c.holder_type, c.holder_login)}</span>{/if}</dd>

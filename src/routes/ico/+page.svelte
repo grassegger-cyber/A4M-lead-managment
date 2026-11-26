@@ -32,6 +32,7 @@
 	import type { Column, Sort } from '$lib/components/Table.svelte';
 	import StateDot from '$lib/components/StateDot.svelte';
 	import Confirm from '$lib/components/Confirm.svelte';
+	import Age from '$lib/components/Age.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { toast } from '$lib/components/toasts.svelte';
 	import MultiSelect from './MultiSelect.svelte';
@@ -60,6 +61,10 @@
 		primary_phone: string | null;
 		operators: string[];
 		phone_count: number;
+		state_verified_at: string | null;
+		ico_verified_at: string | null;
+		phone_added_at: string | null;
+		phone_verified_at: string | null;
 	}
 	interface ListResult {
 		rows: Row[];
@@ -408,6 +413,31 @@
 					bind:value={form.icoValid}
 					onchange={() => apply()}
 				/>
+				<Select
+					label="Kontakt"
+					placeholder="Vše"
+					options={[
+						{ value: 'yes', label: 'S telefonem' },
+						{ value: 'no', label: 'Bez telefonu' }
+					]}
+					bind:value={form.hasPhone}
+					onchange={() => apply()}
+				/>
+				<MultiSelect
+					label="Nikdy neověřeno"
+					options={[
+						{ value: 'state', label: 'Stav a vlastnictví' },
+						{ value: 'phone', label: 'Telefon (operátor)' },
+						{ value: 'ico', label: 'Platnost IČO' }
+					]}
+					bind:value={form.unverified}
+					onchange={() => apply()}
+				/>
+				<div class="range" role="group" aria-label="Stav ověřen">
+					<span class="range-label">Stav ověřen</span>
+					<DateInput label="Stav ověřen: od" hideLabel placeholder="od" bind:value={form.stateVerifiedFrom} onchange={() => apply()} />
+					<DateInput label="Stav ověřen: do" hideLabel placeholder="do" bind:value={form.stateVerifiedTo} onchange={() => apply()} />
+				</div>
 				<div class="range" role="group" aria-label="Vlastnictví od">
 					<span class="range-label">Vlastnictví od</span>
 					<DateInput label="Vlastnictví od: od" hideLabel placeholder="od" bind:value={form.ownedFromFrom} onchange={() => apply()} />
@@ -433,8 +463,8 @@
 					<DateInput label="IČO ověřeno: od" hideLabel placeholder="od" bind:value={form.icoVerifiedFrom} onchange={() => apply()} />
 					<DateInput label="IČO ověřeno: do" hideLabel placeholder="do" bind:value={form.icoVerifiedTo} onchange={() => apply()} />
 				</div>
-				<div class="range" role="group" aria-label="Operátor ověřen">
-					<span class="range-label">Operátor ověřen</span>
+				<div class="range" role="group" aria-label="Telefon ověřen">
+					<span class="range-label">Telefon ověřen (operátor)</span>
 					<DateInput label="Operátor ověřen: od" hideLabel placeholder="od" bind:value={form.operatorVerifiedFrom} onchange={() => apply()} />
 					<DateInput label="Operátor ověřen: do" hideLabel placeholder="do" bind:value={form.operatorVerifiedTo} onchange={() => apply()} />
 				</div>
@@ -514,7 +544,7 @@
 									e.preventDefault();
 									openDetail(row.ico);
 								}}>{row.ico}</a
-							>
+							><Age label="IČO ověřeno v ARES" date={row.ico_verified_at} />
 						{:else if column.key === 'name'}
 							<span class="name" title={row.name ?? undefined}>
 								<span class="name-text" class:current>{row.name ?? 'Bez názvu'}</span>
@@ -523,7 +553,7 @@
 								{/if}
 							</span>
 						{:else if column.key === 'state'}
-							<StateDot state={row.state} />
+							<StateDot state={row.state} /><Age label="Stav ověřen" date={row.state_verified_at} />
 						{:else if column.key === 'holder_type'}
 							{HOLDER_LABELS[row.holder_type as HolderType] ?? row.holder_type}{#if holderDetail(row.holder_type, row.holder_login)}<span class="text-muted">&nbsp;· {holderDetail(row.holder_type, row.holder_login)}</span>{/if}
 						{:else if column.key === 'channel'}
@@ -536,7 +566,7 @@
 							{#if row.never_return}<span class="tag">Trvale</span>{:else}<span class="num" class:none={text === '—'}>{text}</span>{/if}
 						{:else if column.key === 'primary_phone'}
 							{@const text = formatPhone(value)}
-							<span class="num" class:none={text === '—'}>{text}</span>{#if row.phone_count > 1}<span class="text-muted">&nbsp;+{row.phone_count - 1}</span>{/if}
+							<span class="num" class:none={text === '—'}>{text}</span>{#if row.phone_count > 1}<span class="text-muted">&nbsp;+{row.phone_count - 1}</span>{/if}{#if row.phone_count > 0}{#if row.phone_verified_at}<Age label="Telefon ověřen (operátor)" date={row.phone_verified_at} />{:else}<Age label="Telefon přidán" date={row.phone_added_at} />{/if}{/if}
 						{:else if column.key === 'operators'}
 							{@const text = operatorsText(row)}
 							<span class:none={text === '—'}>{text}</span>

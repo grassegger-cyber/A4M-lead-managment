@@ -443,6 +443,16 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 		);
 	}
 
+	// 4. Operator from the file: belongs to the first phone number of the row; the day of the
+	//    import is the day the operator was verified.
+	await ctx.db.run(
+		`update company_phones p set operator = r.parsed->>'operator', operator_verified_at = $4
+		 from import_rows r
+		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+			and r.parsed ? 'operator' and p.ico = r.ico and p.phone = r.parsed->'phones'->>0`,
+		[...range, ctx.now()]
+	);
+
 	await applyRobotStatus(ctx, imp, range);
 
 	return { inserted: insertedIcos.length, updated, unchanged: usable - insertedIcos.length - updated, phones };
@@ -512,6 +522,18 @@ async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | strin
 			$9, ok.cohort_id, 'import', $10, $11
 		from ok join u on u.ico = ok.ico`,
 		[...range, czechToday(ctx.now()), states, login.trim(), days, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name]
+	);
+	// The state is confirmed as of now wherever the company is (now) in the state the robot reported,
+	// also when nothing had to change.
+	await ctx.db.run(
+		`update companies c set state_verified_at = $4
+		 from import_rows r
+		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+			and r.parsed ? 'robot_outcome' and c.ico = r.ico and (
+				(r.parsed->>'robot_outcome' = 'owned' and c.state = 'superuser' and c.holder_type = 'superuser')
+				or (r.parsed->>'robot_outcome' = 'missing_in_siebel' and c.state = 'neni_v_siebelu')
+				or (r.parsed->>'robot_outcome' = 'other_owner' and c.holder_type = 'jiny_partner'))`,
+		[...range, ctx.now()]
 	);
 }
 

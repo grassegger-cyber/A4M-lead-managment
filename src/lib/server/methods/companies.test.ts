@@ -570,3 +570,24 @@ describe('companies.export', () => {
 		expect(after!.n).toBe(before!.n);
 	});
 });
+
+describe('companies.list: contact and age of information', () => {
+	it('filters companies without a phone, with a phone, and never verified', async () => {
+		const total = (await call('companies.list', {})).total;
+		const withPhone = (await call('companies.list', { filter: { hasPhone: 'yes' } })).total;
+		const without = (await call('companies.list', { filter: { hasPhone: 'no' } })).total;
+		expect(withPhone + without).toBe(total);
+		expect(withPhone).toBeGreaterThan(0);
+		await expectError(call('companies.list', { filter: { hasPhone: 'maybe' } }), 'filter_invalid');
+
+		const stateUnverified = (await call('companies.list', { filter: { unverified: ['state'] } })).total;
+		const stateVerified = (await call('companies.list', { filter: { stateVerifiedFrom: '2000-01-01' } })).total;
+		expect(stateUnverified + stateVerified).toBe(total);
+		// The manual transitions made by the tests above stamped the state as verified.
+		expect(stateVerified).toBeGreaterThan(0);
+		const row = (await call('companies.list', { filter: { stateVerifiedFrom: '2000-01-01' }, pageSize: 1 })).rows[0];
+		expect(row.state_verified_at).toBeTruthy();
+		expect(row).toHaveProperty('phone_added_at');
+		expect(row).toHaveProperty('ico_verified_at');
+	});
+});

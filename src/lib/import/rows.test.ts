@@ -18,7 +18,8 @@ const rules: ImportRules = {
 	phoneSeparators: ',;/|',
 	nameMaxLength: 60,
 	subjectTypeValues: { FO: ['fo', 'fyzicka osoba'], PO: ['po', 'pravnicka osoba'] },
-	robotStatusValues: { owned: ['ano'], other_owner: ['ne'], missing_in_siebel: ['ano dopln do siebelu'] }
+	robotStatusValues: { owned: ['ano'], other_owner: ['ne'], missing_in_siebel: ['ano dopln do siebelu'] },
+	operatorValues: { VF: ['vodafone'], TM: ['t mobile', 'tmobile'], O2: ['o2'], jiny: ['jiny'] }
 };
 const ICO = icoFromPrefix(9960001); // fictional range
 const ICO_SHORT = icoFromPrefix('0012345'); // starts with zeros

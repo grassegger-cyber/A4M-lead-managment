@@ -601,3 +601,50 @@ describe('imports: differences against the database and the choice what to overw
 		expect(log!.details.overwrite_fields).toEqual(['ca_number']);
 	});
 });
+
+describe('imports: operator from the file and the age of information', () => {
+	const A = icoFromPrefix(9952001);
+	const B = icoFromPrefix(9952002);
+
+	it('writes the operator to the first phone with the day of the import, and marks the state as verified', async () => {
+		const started = await call('imports.start', {
+			filename: 'operator.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], phone: ['Telefon', 'Telefon 2'], operator: ['Operátor'], robot_status: ['Stav z robota'] },
+			declaredRows: 2,
+			emptyRows: 0
+		});
+		const id = started.id;
+		await call('imports.appendRows', {
+			id,
+			rows: [
+				{ rowNo: 2, data: { ico: A, phones: ['+420 000 520 001', '+420 000 520 002'], operator: 'T-Mobile', robot_status: 'ANO' } },
+				{ rowNo: 3, data: { ico: B, phones: ['+420 000 520 003'], operator: 'Orange' } }
+			]
+		});
+		let state = await call('imports.validate', { id });
+		while (!state.done) state = await call('imports.validate', { id });
+		const warn = await call('imports.rows', { id, kind: 'warning' });
+		expect(warn.items.map((w: { problem: string }) => w.problem).join(' | ')).toContain('Neznámý operátor');
+		let applied = await call('imports.apply', { id, confirm: true });
+		while (!applied.done) applied = await call('imports.apply', { id });
+
+		const phones = await db.query<Record<string, any>>(
+			`select phone, operator, operator_verified_at is not null as verified from company_phones where ico = any($1::char(8)[]) order by phone`,
+			[[A, B]]
+		);
+		expect(phones).toEqual([
+			{ phone: '+420000520001', operator: 'TM', verified: true },
+			{ phone: '+420000520002', operator: null, verified: false },
+			{ phone: '+420000520003', operator: null, verified: false }
+		]);
+		const companies = await db.query<Record<string, any>>(
+			`select ico, state, state_verified_at is not null as verified from companies where ico = any($1::char(8)[]) order by ico`,
+			[[A, B]]
+		);
+		expect(companies).toEqual([
+			{ ico: A, state: 'superuser', verified: true },
+			{ ico: B, state: 'v_poolu', verified: false }
+		]);
+	});
+});

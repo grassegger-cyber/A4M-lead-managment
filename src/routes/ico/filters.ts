@@ -32,6 +32,12 @@ export interface ListState {
 	icoVerifiedTo: string;
 	operatorVerifiedFrom: string;
 	operatorVerifiedTo: string;
+	stateVerifiedFrom: string;
+	stateVerifiedTo: string;
+	/** '' | 'yes' | 'no': has at least one phone number. */
+	hasPhone: string;
+	/** Never verified: 'state', 'phone', 'ico'. */
+	unverified: string[];
 	roundsMin: string;
 	roundsMax: string;
 	icoValid: string;
@@ -54,7 +60,8 @@ const LIST_PARAMS: [ListKey, string][] = [
 	['operator', 'operator'],
 	['cohortId', 'cohort'],
 	['channel', 'channel'],
-	['salesRepId', 'rep']
+	['salesRepId', 'rep'],
+	['unverified', 'unver']
 ];
 const TEXT_PARAMS: [ListKey, string][] = [
 	['q', 'q'],
@@ -71,6 +78,9 @@ const TEXT_PARAMS: [ListKey, string][] = [
 	['icoVerifiedTo', 'icoVerTo'],
 	['operatorVerifiedFrom', 'opVerFrom'],
 	['operatorVerifiedTo', 'opVerTo'],
+	['stateVerifiedFrom', 'stVerFrom'],
+	['stateVerifiedTo', 'stVerTo'],
+	['hasPhone', 'phone'],
 	['roundsMin', 'roundsMin'],
 	['roundsMax', 'roundsMax'],
 	['icoValid', 'valid'],
@@ -98,6 +108,10 @@ export const MORE_FILTER_KEYS: ListKey[] = [
 	'icoVerifiedTo',
 	'operatorVerifiedFrom',
 	'operatorVerifiedTo',
+	'stateVerifiedFrom',
+	'stateVerifiedTo',
+	'hasPhone',
+	'unverified',
 	'roundsMin',
 	'roundsMax',
 	'icoValid',
@@ -129,6 +143,10 @@ export function emptyState(): ListState {
 		icoVerifiedTo: '',
 		operatorVerifiedFrom: '',
 		operatorVerifiedTo: '',
+		stateVerifiedFrom: '',
+		stateVerifiedTo: '',
+		hasPhone: '',
+		unverified: [],
 		roundsMin: '',
 		roundsMax: '',
 		icoValid: '',
@@ -209,6 +227,10 @@ export function toApiArgs(s: ListState) {
 			icoVerifiedTo: s.icoVerifiedTo,
 			operatorVerifiedFrom: s.operatorVerifiedFrom,
 			operatorVerifiedTo: s.operatorVerifiedTo,
+			stateVerifiedFrom: s.stateVerifiedFrom,
+			stateVerifiedTo: s.stateVerifiedTo,
+			hasPhone: s.hasPhone,
+			unverified: s.unverified,
 			roundsMin: s.roundsMin,
 			roundsMax: s.roundsMax,
 			icoValid: s.icoValid,

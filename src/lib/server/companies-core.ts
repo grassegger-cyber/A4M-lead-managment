@@ -170,9 +170,11 @@ export async function transition(
 			params.push(extra.roundsIncrement);
 			sets.push(`rounds_count = rounds_count + $${params.length}`);
 		}
+		const at = tx.now();
+		// A change made by a person or reported by the robot / Siebel confirms the state as of now.
+		if (source === 'manual' || source === 'robot' || source === 'siebel') set('state_verified_at', at);
 		await tx.db.run(`update companies set ${sets.join(', ')} where ico = $1`, params);
 
-		const at = tx.now();
 		const fromHolder = holderText(company.holder_type, company.holder_login);
 		const toHolder = holderText(toHolderType, toHolderLogin);
 		const cohortId = 'cohortId' in extra && extra.cohortId !== undefined ? extra.cohortId : company.cohort_id;
