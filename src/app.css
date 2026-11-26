@@ -116,6 +116,7 @@
 	--state-ztraceno: #e8ebef;
 	--state-zakaznik: #a07700;
 	--state-neaktivni_ico: #474c55;
+	--state-neni_v_siebelu: #676e7b;
 
 	/* ---------- Radii (concentric: panel 24 > plate 22 > sheet 16) ---------- */
 	--radius-panel: 24px;

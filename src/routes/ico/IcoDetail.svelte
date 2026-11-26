@@ -12,6 +12,7 @@
 		CHANNEL_LABELS,
 		HISTORY_SOURCE_LABELS,
 		HOLDER_LABELS,
+		holderDetail,
 		HOLDER_TYPES,
 		OPERATOR_LABELS,
 		SUBJECT_TYPE_LABELS,
@@ -358,7 +359,7 @@
 		<div><dt>Stav</dt><dd><StateDot state={c.state} /></dd></div>
 		<div>
 			<dt>Držitel</dt>
-			<dd>{HOLDER_LABELS[c.holder_type] ?? c.holder_type}{#if c.holder_login}<span class="text-muted">&nbsp;· {c.holder_login}</span>{/if}</dd>
+			<dd>{HOLDER_LABELS[c.holder_type] ?? c.holder_type}{#if holderDetail(c.holder_type, c.holder_login)}<span class="text-muted">&nbsp;· {holderDetail(c.holder_type, c.holder_login)}</span>{/if}</dd>
 		</div>
 		<div>
 			<dt>Přiřazený OZ</dt>

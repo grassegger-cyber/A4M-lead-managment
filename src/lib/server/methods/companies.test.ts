@@ -291,7 +291,9 @@ describe('companies.transition', () => {
 	});
 
 	it('refuses a transition outside the allowed paths and writes nothing', async () => {
-		await expectError(call('companies.transition', { ico: ico(1), toState: 'superuser', reason: 'zkouška' }), 'transition_forbidden');
+		await expectError(call('companies.transition', { ico: ico(1), toState: 'zakaznik', reason: 'zkouška' }), 'transition_forbidden');
+		// v_poolu → superuser exists for the import of the robot result only, never by hand.
+		await expectError(call('companies.transition', { ico: ico(1), toState: 'superuser', reason: 'zkouška' }), 'transition_not_manual');
 		const history = await db.one<{ n: number }>('select count(*)::int as n from company_state_history where ico = $1', [ico(1)]);
 		expect(history!.n).toBe(1);
 	});

@@ -15,6 +15,8 @@ export interface ImportSummary {
 	validatedRows: number;
 	counts: { new: number; update: number; duplicate: number; invalidIco: number; error: number; warning: number } | null;
 	applied: { throughRow: number; new: number; updated: number; unchanged: number; phones: number };
+	/** Column "Stav z robota": IČO per outcome; absent when the file has no such column. */
+	robot?: { owned: number; otherOwner: number; missing: number; skipped: number } | null;
 	createdAt: string;
 	createdByName: string | null;
 	uploadedAt: string | null;

@@ -194,18 +194,19 @@ describe('state transitions', () => {
 	});
 
 	it('warns when a change leaves a state unreachable, but still saves it', async () => {
-		const result = await call(settings, 'settings.saveTransition', {
-			fromState: 'u_robota_ocisteni',
-			toState: 'superuser',
-			enabled: false
-		});
+		// neni_v_siebelu is entered from three states; with all three closed nothing leads to it.
+		const entries = ['v_poolu', 've_filtru', 'u_robota_ocisteni'];
+		let result: any;
+		for (const fromState of entries) {
+			result = await call(settings, 'settings.saveTransition', { fromState, toState: 'neni_v_siebelu', enabled: false });
+		}
 		expect(result.changed).toBe(true);
-		// superuser stays reachable through plovak → superuser only if plovak is reachable, which needs
-		// vraceno/odvlastneno, which need superuser or login_oz: the whole loop falls off.
-		expect(result.warnings.unreachable).toContain('superuser');
+		expect(result.warnings.unreachable).toContain('neni_v_siebelu');
 		const { problems } = await call(settings, 'settings.transitions');
-		expect(problems.unreachable).toContain('superuser');
-		await call(settings, 'settings.saveTransition', { fromState: 'u_robota_ocisteni', toState: 'superuser', enabled: true });
+		expect(problems.unreachable).toContain('neni_v_siebelu');
+		for (const fromState of entries) {
+			await call(settings, 'settings.saveTransition', { fromState, toState: 'neni_v_siebelu', enabled: true });
+		}
 		expect((await call(settings, 'settings.transitions')).problems.unreachable).toEqual([]);
 	});
 

@@ -219,3 +219,13 @@ Tento oddíl doplňuje text výše, který zůstává beze změny. Kde se od ně
 9. **Pořadí stavby:** Rybníky se stavy z Raynetu přijdou s krokem 5, kontrola rovnoměrného předávání s krokem 9. Exekutiva vznikne s krokem 6, další skupiny případů přibudou v krocích 7 a 9. Založení leadů dávky je navržené do kroku 9 (návrh, Thomas ho zatím nepotvrdil), protože potřebuje klienta Raynetu a zrcadlo leadů z kroku 5, import výsledku robota z kroku 4 a pravidla přidělování z kroku 9.
 10. Fakta o leadech přečtená 20. 11. 2026 se souhlasem Thomase z ostré instance Raynetu (jen nastavení a fáze leadů, nic se neuložilo ani nezměnilo) jsou v návrhu, oddíl 5.1.
 11. Důsledek bodu 7 (otevřené, otázka 8.2 č. 32): IČO, které má v Raynetu jen lead, nemá firmu, takže u něj nejde zapsat Kohortu, Semafor ani Konec vlastnictví a OZ nemá kam zapsat Rozhodnutí o vlastnictví. Rozhodne Thomas před krokem 6.
+
+### Změny z 26. 11. 2026 (rozhodnutí Thomase)
+
+1. **Ostrá verze v cloudu** s přihlášením (e-mail, heslo, povinné 2FA) a obnovou hesla odkazem z e-mailu. Postup je v `03-ostry-provoz.md`.
+2. **Import umí sloupec „Stav z robota“** (výsledek čištění robotem v Siebelu). Hodnoty a jejich význam:
+   - `ANO`: jsme vlastníkem. Stav `superuser`, držitel ochranný user (výchozí KAJZAR2), vlastnictví od data v souboru nebo ode dne importu, konec vlastnictví za 1 měsíc. Prodloužení o další měsíc se žádá zvlášť a zatím se nezapisuje.
+   - `ANO - doplň do Siebelu`: IČO v Siebelu vůbec není a musí se ručně založit. **Nový stav `neni_v_siebelu`** („Není v Siebelu“), třináctý stav vedle dvanácti původních. Po založení jde IČO znovu do dávky pro robota (`neni_v_siebelu → ve_filtru`).
+   - `NE`: v Siebelu je jiný vlastník, nejde přeblokovat. Není to „ztraceno“: stav se nemění, jen se zapíše držitel „Jiný partner – nerozpoznáno“. Jak se s těmito IČO pracuje dál, Thomas teprve určí.
+3. U IČO, které v databázi už je, import stav z robota zapíše jen ve stavech `v_poolu`, `ve_filtru`, `u_robota_ocisteni` a `neni_v_siebelu`. Jakmile u IČO známe vlastníka nebo detail (login OZ, zákazník, plovák…), import ho nezmění a vypíše ho v reportu jako upozornění. Důvod: soubor nese jen základní údaje, aplikace ví víc.
+4. Texty hodnot, ochranný user, délka vlastnictví a seznam přepisovatelných stavů jsou v Nastavení (skupina Import).

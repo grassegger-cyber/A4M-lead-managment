@@ -446,3 +446,93 @@ describe('imports: volume', () => {
 		console.log(`3000 rows: upload ${t1 - t0} ms, validate ${t2 - t1} ms, apply ${t3 - t2} ms`);
 	});
 });
+
+describe('imports: stav z robota', () => {
+	const A = icoFromPrefix(9950001);
+	const B = icoFromPrefix(9950002);
+	const C = icoFromPrefix(9950003);
+	const D = icoFromPrefix(9950004);
+	const E = icoFromPrefix(9950005);
+
+	it('writes owner, missing-in-Siebel and other-owner, and leaves a company with another state alone', async () => {
+		// D is already with a sales rep: the import must not touch its state.
+		await db.run(`insert into companies (ico, name, state, holder_type, holder_login) values ($1, 'Testovací D', 'login_oz', 'login_oz', 'TEST_OZ01')`, [D]);
+		const started = await call('imports.start', {
+			filename: 'robot.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], name: ['Název'], robot_status: ['Stav z robota'], owned_from: ['Vlastnictví od'] },
+			declaredRows: 5,
+			emptyRows: 0
+		});
+		const id = started.id;
+		await call('imports.appendRows', {
+			id,
+			rows: [
+				{ rowNo: 2, data: { ico: A, name: 'Testovací A', robot_status: 'ANO', owned_from: '01. 11. 2026' } },
+				{ rowNo: 3, data: { ico: B, name: 'Testovací B', robot_status: 'ano - doplň do Siebelu' } },
+				{ rowNo: 4, data: { ico: C, name: 'Testovací C', robot_status: ' NE ' } },
+				{ rowNo: 5, data: { ico: D, name: 'Testovací D', robot_status: 'ANO' } },
+				{ rowNo: 6, data: { ico: E, name: 'Testovací E', robot_status: 'možná' } }
+			]
+		});
+		let state = await call('imports.validate', { id });
+		while (!state.done) state = await call('imports.validate', { id });
+		const checked = await call('imports.get', { id });
+		expect(checked.robot).toEqual({ owned: 1, otherOwner: 1, missing: 1, skipped: 1 });
+		const warn = await call('imports.rows', { id, kind: 'warning' });
+		expect(warn.items.map((w: { problem: string }) => w.problem).join(' | ')).toContain('stav z robota se nepoužije');
+		expect(warn.items.map((w: { problem: string }) => w.problem).join(' | ')).toContain('Neznámý stav z robota');
+
+		let applied = await call('imports.apply', { id, confirm: true });
+		while (!applied.done) applied = await call('imports.apply', { id });
+
+		const rows = await db.query<Record<string, any>>(
+			`select ico, state, holder_type, holder_login, owned_from, ownership_ends_on from companies where ico = any($1::char(8)[]) order by ico`,
+			[[A, B, C, D, E]]
+		);
+		const by = Object.fromEntries(rows.map((r) => [r.ico, r]));
+		expect(by[A]).toMatchObject({ state: 'superuser', holder_type: 'superuser', holder_login: 'KAJZAR2', owned_from: '2026-11-01', ownership_ends_on: '2026-12-01' });
+		expect(by[B]).toMatchObject({ state: 'neni_v_siebelu', holder_type: 'neznamo', owned_from: null });
+		expect(by[C]).toMatchObject({ state: 'v_poolu', holder_type: 'jiny_partner', holder_login: null });
+		expect(by[D]).toMatchObject({ state: 'login_oz', holder_type: 'login_oz', holder_login: 'TEST_OZ01' });
+		expect(by[E]).toMatchObject({ state: 'v_poolu', holder_type: 'neznamo' });
+
+		const history = await db.query<Record<string, any>>(
+			`select ico, from_state, to_state, to_holder, reason_code, source from company_state_history
+			 where ico = any($1::char(8)[]) and reason_code like 'import_robot%' order by ico`,
+			[[A, B, C, D, E]]
+		);
+		expect(history).toEqual([
+			{ ico: A, from_state: 'v_poolu', to_state: 'superuser', to_holder: 'superuser:KAJZAR2', reason_code: 'import_robot_owned', source: 'import' },
+			{ ico: B, from_state: 'v_poolu', to_state: 'neni_v_siebelu', to_holder: 'neznamo', reason_code: 'import_robot_missing', source: 'import' },
+			{ ico: C, from_state: 'v_poolu', to_state: 'v_poolu', to_holder: 'jiny_partner', reason_code: 'import_robot_other_owner', source: 'import' }
+		]);
+	});
+
+	it('the same file again changes nothing and writes no second history row', async () => {
+		const started = await call('imports.start', {
+			filename: 'robot.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], robot_status: ['Stav z robota'] },
+			declaredRows: 2,
+			emptyRows: 0
+		});
+		const id = started.id;
+		await call('imports.appendRows', {
+			id,
+			rows: [
+				{ rowNo: 2, data: { ico: B, robot_status: 'ANO - doplň do Siebelu' } },
+				{ rowNo: 3, data: { ico: C, robot_status: 'NE' } }
+			]
+		});
+		let state = await call('imports.validate', { id });
+		while (!state.done) state = await call('imports.validate', { id });
+		let applied = await call('imports.apply', { id, confirm: true });
+		while (!applied.done) applied = await call('imports.apply', { id });
+		const n = await db.one<{ n: number }>(
+			`select count(*)::int as n from company_state_history where ico = any($1::char(8)[]) and reason_code like 'import_robot%'`,
+			[[B, C]]
+		);
+		expect(n!.n).toBe(2);
+	});
+});

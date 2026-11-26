@@ -241,6 +241,17 @@ async function finishValidation(ctx: Ctx, imp: ImportRow): Promise<void> {
 		 where r.import_id = $1 and r.status = 'parsed'`,
 		[id]
 	);
+	// Stav z robota: a company that already has another state (an owner, a customer…) keeps it.
+	const overwrite = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');
+	await ctx.db.run(
+		`update import_rows r
+		 set warnings = coalesce(r.warnings, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+			'code', 'robot_status_skipped', 'field', 'robot_status', 'value', coalesce(r.data->>'robot_status', '')))
+		 from companies c
+		 where r.import_id = $1 and r.status = 'update' and r.parsed ? 'robot_outcome'
+			and c.ico = r.ico and not (c.state = any($2::text[]))`,
+		[id, Array.isArray(overwrite) ? overwrite : []]
+	);
 	const counts = await ctx.db.query<{ status: string; n: number; warned: number }>(
 		`select status, count(*)::int as n, (count(*) filter (where warnings is not null))::int as warned
 		 from import_rows where import_id = $1 group by status`,
@@ -423,7 +434,76 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 		);
 	}
 
+	await applyRobotStatus(ctx, imp, range);
+
 	return { inserted: insertedIcos.length, updated, unchanged: usable - insertedIcos.length - updated, phones };
+}
+
+/** Calendar day in Czech time, wherever the server runs. */
+function czechToday(d: Date): string {
+	return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
+/**
+ * Column "Stav z robota": what the robot found in Siebel. Set-based twin of transition() for
+ * whole chunks (thousands of rows): the same checks against state_transitions and one history
+ * row per changed company, in the caller's transaction. Only companies whose state is in
+ * import.robot_overwrite_states are touched; the others got a warning during the check.
+ *  - owned: state superuser on the protective login, ownership from the row's date (or today)
+ *  - missing_in_siebel: state neni_v_siebelu
+ *  - other_owner: the state stays, the holder becomes jiny_partner
+ */
+async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | string)[]): Promise<void> {
+	const states = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');
+	const login = await getSetting<unknown>(ctx.db, 'import.robot_owner_login');
+	const months = await positiveSetting(ctx, 'import.robot_ownership_months');
+	if (!Array.isArray(states) || !states.length) return;
+	if (typeof login !== 'string' || !login.trim()) {
+		throw new AppError('setting_invalid', 'Nastavení „import.robot_owner_login“ musí být vyplněné.', 500);
+	}
+	await ctx.db.run(
+		`with t as (
+			select r.ico, r.parsed->>'robot_outcome' as outcome, (r.parsed->>'owned_from')::date as owned_from
+			from import_rows r
+			where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+				and r.parsed ? 'robot_outcome'
+		), l as (
+			select c.ico, c.state as from_state, c.cohort_id, t.outcome, coalesce(t.owned_from, $4::date) as owned_from,
+				case when c.holder_login is null then c.holder_type else c.holder_type || ':' || c.holder_login end as from_holder,
+				case t.outcome when 'owned' then 'superuser' when 'missing_in_siebel' then 'neni_v_siebelu' else c.state end as to_state
+			from companies c join t on t.ico = c.ico
+			where c.state = any($5::text[])
+			for update of c
+		), ok as (
+			select l.* from l
+			where l.outcome = 'other_owner'
+				or exists (select 1 from state_transitions st
+					where st.from_state = l.from_state and st.to_state = l.to_state and st.enabled)
+		), u as (
+			update companies c set
+				state = ok.to_state,
+				holder_type = case ok.outcome when 'owned' then 'superuser' when 'other_owner' then 'jiny_partner' else c.holder_type end,
+				holder_login = case ok.outcome when 'owned' then $6 when 'other_owner' then null else c.holder_login end,
+				owned_from = case when ok.outcome = 'owned' then ok.owned_from else c.owned_from end,
+				ownership_ends_on = case when ok.outcome = 'owned'
+					then (ok.owned_from + make_interval(months => $7::int))::date else c.ownership_ends_on end
+			from ok
+			where c.ico = ok.ico and (
+				c.state is distinct from ok.to_state
+				or (ok.outcome = 'other_owner' and c.holder_type is distinct from 'jiny_partner')
+				or (ok.outcome = 'owned' and (c.holder_type is distinct from 'superuser' or c.holder_login is distinct from $6)))
+			returning c.ico, c.state, c.holder_type, c.holder_login
+		)
+		insert into company_state_history
+			(ico, at, from_state, to_state, from_holder, to_holder, reason_code, note, cohort_id, source, actor_id, actor_name)
+		select ok.ico, $8, ok.from_state, u.state, ok.from_holder,
+			case when u.holder_login is null then u.holder_type else u.holder_type || ':' || u.holder_login end,
+			case ok.outcome when 'owned' then 'import_robot_owned' when 'missing_in_siebel' then 'import_robot_missing'
+				else 'import_robot_other_owner' end,
+			$9, ok.cohort_id, 'import', $10, $11
+		from ok join u on u.ico = ok.ico`,
+		[...range, czechToday(ctx.now()), states, login.trim(), months, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name]
+	);
 }
 
 // ---------- error report ----------
@@ -525,6 +605,29 @@ async function reportableImport(ctx: Ctx, id: number): Promise<ImportRow> {
 		throw new AppError('rows_purged', `Řádky importu č. ${id} už byly smazány, report nejde sestavit.`, 409);
 	}
 	return imp;
+}
+
+/**
+ * What the column "Stav z robota" will do (or did): number of IČO per outcome among the usable
+ * rows, and how many are skipped because the company already has another state. Null when the
+ * file has no such column or its rows are gone.
+ */
+async function robotCounts(ctx: Ctx, imp: ImportRow) {
+	if (imp.rows_new === null || imp.rows_purged_at || !imp.mapping?.robot_status?.length) return null;
+	const row = await ctx.db.one<{ owned: number; other_owner: number; missing: number; skipped: number }>(
+		`select
+			(count(*) filter (where not skipped and outcome = 'owned'))::int as owned,
+			(count(*) filter (where not skipped and outcome = 'other_owner'))::int as other_owner,
+			(count(*) filter (where not skipped and outcome = 'missing_in_siebel'))::int as missing,
+			(count(*) filter (where skipped))::int as skipped
+		 from (
+			select parsed->>'robot_outcome' as outcome,
+				coalesce(warnings @> '[{"code": "robot_status_skipped"}]'::jsonb, false) as skipped
+			from import_rows
+			where import_id = $1 and status in ('new', 'update') and parsed ? 'robot_outcome') s`,
+		[imp.id]
+	);
+	return { owned: row?.owned ?? 0, otherOwner: row?.other_owner ?? 0, missing: row?.missing ?? 0, skipped: row?.skipped ?? 0 };
 }
 
 // ---------- methods ----------
@@ -833,7 +936,10 @@ export const methods: MethodMap = {
 	},
 
 	/** One import with its counts. args: { id } */
-	'imports.get': async (ctx, args) => summary(await readImport(ctx, importId(args))),
+	'imports.get': async (ctx, args) => {
+		const imp = await readImport(ctx, importId(args));
+		return { ...summary(imp), robot: await robotCounts(ctx, imp) };
+	},
 
 	/**
 	 * Problem rows of an import for the screen. args: { id, kind: 'invalid_ico' | 'duplicate' | 'error' | 'warning',

@@ -348,6 +348,30 @@
 								<td class="num">{formatNumber(counts.warning)}</td>
 								<td class="text-muted">Zapíšou se, jen bez vadné hodnoty (například telefon ve špatném tvaru).</td>
 							</tr>
+							{#if imp.robot}
+								<tr>
+									<th scope="row"><StateDot state="superuser" label="Robot: jsme vlastníkem" /></th>
+									<td class="num">{formatNumber(imp.robot.owned)}</td>
+									<td class="text-muted">Stav „Superuser“ na ochranném useru, vlastnictví od data v souboru nebo ode dne importu.</td>
+								</tr>
+								<tr>
+									<th scope="row"><StateDot state="neni_v_siebelu" label="Robot: není v Siebelu" /></th>
+									<td class="num">{formatNumber(imp.robot.missing)}</td>
+									<td class="text-muted">Stav „Není v Siebelu“. IČO je potřeba v Siebelu ručně založit.</td>
+								</tr>
+								<tr>
+									<th scope="row"><StateDot state="" dot={{ color: 'grey', variant: 'solid' }} label="Robot: jiný vlastník" /></th>
+									<td class="num">{formatNumber(imp.robot.otherOwner)}</td>
+									<td class="text-muted">Stav se nemění, jako držitel se zapíše „Jiný partner – nerozpoznáno“.</td>
+								</tr>
+								{#if imp.robot.skipped > 0}
+									<tr>
+										<th scope="row"><StateDot state="" dot={{ color: 'fan', variant: 'solid' }} label="Robot: nepoužito" /></th>
+										<td class="num">{formatNumber(imp.robot.skipped)}</td>
+										<td class="text-muted">IČO už má v databázi jiný stav (má vlastníka, je zákazník…). Stav z robota se u nich nezapíše, jsou v Upozorněních.</td>
+									</tr>
+								{/if}
+							{/if}
 						</tbody>
 					</table>
 				</div>

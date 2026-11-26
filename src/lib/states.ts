@@ -12,7 +12,9 @@ export const STATES = [
 	'karantena',
 	'ztraceno',
 	'zakaznik',
-	'neaktivni_ico'
+	'neaktivni_ico',
+	// Added by Thomas on 26. 11. 2026: the IČO is missing in Siebel and must be created there by hand.
+	'neni_v_siebelu'
 ] as const;
 
 export type CompanyState = (typeof STATES)[number];
@@ -29,7 +31,8 @@ export const STATE_LABELS: Record<CompanyState, string> = {
 	karantena: 'Karanténa',
 	ztraceno: 'Ztraceno',
 	zakaznik: 'Zákazník',
-	neaktivni_ico: 'Neaktivní IČO'
+	neaktivni_ico: 'Neaktivní IČO',
+	neni_v_siebelu: 'Není v Siebelu'
 };
 
 /**
@@ -54,7 +57,8 @@ export const STATE_DOTS: Record<CompanyState, DotStyle> = {
 	karantena: { color: 'state-karantena', variant: 'solid' },
 	ztraceno: { color: 'state-ztraceno', variant: 'solid', rim: true },
 	zakaznik: { color: 'state-zakaznik', variant: 'solid' },
-	neaktivni_ico: { color: 'state-neaktivni_ico', variant: 'solid' }
+	neaktivni_ico: { color: 'state-neaktivni_ico', variant: 'solid' },
+	neni_v_siebelu: { color: 'state-neni_v_siebelu', variant: 'ring' }
 };
 
 export function isCompanyState(value: unknown): value is CompanyState {
@@ -121,3 +125,12 @@ export const HISTORY_SOURCE_LABELS: Record<HistorySource, string> = {
 	manual: 'Ručně',
 	system: 'Systém'
 };
+
+/**
+ * Text shown beside the holder type: the login, or for another partner whose name is not known
+ * yet (robot result "NE") the word "nerozpoznáno".
+ */
+export function holderDetail(type: string | null | undefined, login: string | null | undefined): string {
+	if (login) return login;
+	return type === 'jiny_partner' ? 'nerozpoznáno' : '';
+}

@@ -12,6 +12,7 @@
 		CHANNELS,
 		CHANNEL_LABELS,
 		HOLDER_LABELS,
+		holderDetail,
 		HOLDER_TYPES,
 		OPERATORS,
 		OPERATOR_LABELS,
@@ -524,7 +525,7 @@
 						{:else if column.key === 'state'}
 							<StateDot state={row.state} />
 						{:else if column.key === 'holder_type'}
-							{HOLDER_LABELS[row.holder_type as HolderType] ?? row.holder_type}{#if row.holder_login}<span class="text-muted">&nbsp;· {row.holder_login}</span>{/if}
+							{HOLDER_LABELS[row.holder_type as HolderType] ?? row.holder_type}{#if holderDetail(row.holder_type, row.holder_login)}<span class="text-muted">&nbsp;· {holderDetail(row.holder_type, row.holder_login)}</span>{/if}
 						{:else if column.key === 'channel'}
 							{#if value}{CHANNEL_LABELS[value as Channel] ?? value}{:else}<span class="none">—</span>{/if}
 						{:else if column.key === 'ownership_ends_on' || column.key === 'return_on'}

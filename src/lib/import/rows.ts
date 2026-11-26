@@ -16,7 +16,9 @@ export const IMPORT_FIELDS = [
 	'nace',
 	'founded_on',
 	'ca_number',
-	'phone'
+	'phone',
+	'robot_status',
+	'owned_from'
 ] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 
@@ -30,7 +32,9 @@ export const IMPORT_FIELD_LABELS: Record<ImportField, string> = {
 	nace: 'Obor (CZ-NACE)',
 	founded_on: 'Datum vzniku',
 	ca_number: 'Číslo CA',
-	phone: 'Telefon'
+	phone: 'Telefon',
+	robot_status: 'Stav z robota',
+	owned_from: 'Vlastnictví od (datum)'
 };
 
 /** Fields that several Excel columns may feed at once. */
@@ -65,6 +69,8 @@ export interface RawRow {
 	nace?: string;
 	founded_on?: string;
 	ca_number?: string;
+	robot_status?: string;
+	owned_from?: string;
 	/** One entry per mapped phone column (a cell may hold several numbers). */
 	phones?: string[];
 }
@@ -81,8 +87,15 @@ export interface ParsedRow {
 	nace_codes?: string[];
 	founded_on?: string;
 	ca_number?: string;
+	/** What the robot found in Siebel (column "Stav z robota"). */
+	robot_outcome?: RobotOutcome;
+	/** Day the ownership started; the day of the import when absent. */
+	owned_from?: string;
 	phones: string[];
 }
+
+export const ROBOT_OUTCOMES = ['owned', 'other_owner', 'missing_in_siebel'] as const;
+export type RobotOutcome = (typeof ROBOT_OUTCOMES)[number];
 
 export type RowErrorCode = IcoError | 'name_too_long' | 'row_malformed';
 export type RowWarningCode =
@@ -94,7 +107,9 @@ export type RowWarningCode =
 	| 'district_unknown'
 	| 'nace_invalid'
 	| 'date_invalid'
-	| 'ca_too_long';
+	| 'ca_too_long'
+	| 'robot_status_unknown'
+	| 'robot_status_skipped';
 
 export interface RowWarning {
 	code: RowWarningCode;
@@ -124,7 +139,9 @@ export const ROW_WARNING_LABELS: Record<RowWarningCode, string> = {
 	district_unknown: 'Neznámý okres, nepoužije se',
 	nace_invalid: 'Kód oboru nemá platný tvar, nepoužije se',
 	date_invalid: 'Datum nejde přečíst, nepoužije se',
-	ca_too_long: 'Číslo CA je příliš dlouhé, nepoužije se'
+	ca_too_long: 'Číslo CA je příliš dlouhé, nepoužije se',
+	robot_status_unknown: 'Neznámý stav z robota, IČO se zapíše bez něj',
+	robot_status_skipped: 'IČO už má v databázi jiný stav, stav z robota se nepoužije'
 };
 
 export type RowStatus = 'pending' | 'parsed' | 'new' | 'update' | 'duplicate' | 'invalid_ico' | 'error';
@@ -140,6 +157,8 @@ export interface ImportRules {
 	nameMaxLength: number;
 	/** { FO: [texts], PO: [texts] }, texts lower-case without diacritics. */
 	subjectTypeValues: Record<string, string[]>;
+	/** { owned: [texts], other_owner: [texts], missing_in_siebel: [texts] }, texts normalised like headers. */
+	robotStatusValues: Record<string, string[]>;
 }
 
 /** Builds the rules from the 'import.*' settings; throws when a key is missing or malformed. */
@@ -163,7 +182,15 @@ export function rulesFromSettings(settings: Record<string, unknown>): ImportRule
 			subjectTypeValues[type] = Array.isArray(values) ? values.map((v) => normText(String(v))) : [];
 		}
 	}
+	const robotMap = settings['import.robot_status_values'];
+	const robotStatusValues: Record<string, string[]> = {};
+	if (robotMap && typeof robotMap === 'object' && !Array.isArray(robotMap)) {
+		for (const [outcome, values] of Object.entries(robotMap as Record<string, unknown>)) {
+			robotStatusValues[outcome] = Array.isArray(values) ? values.map((v) => normText(String(v))) : [];
+		}
+	}
 	return {
+		robotStatusValues,
 		phoneDefaultPrefix: prefix,
 		phoneNationalDigits: num('import.phone_national_digits'),
 		phoneSeparators: text('import.phone_separators'),
@@ -300,7 +327,19 @@ export const DISTRICT_REGION_CODES: Record<string, string> = Object.fromEntries(
 );
 
 // ---------- one row ----------
-const RAW_TEXT_KEYS = ['ico', 'name', 'subject_type', 'legal_form_code', 'region', 'district', 'nace', 'founded_on', 'ca_number'] as const;
+const RAW_TEXT_KEYS = [
+	'ico',
+	'name',
+	'subject_type',
+	'legal_form_code',
+	'region',
+	'district',
+	'nace',
+	'founded_on',
+	'ca_number',
+	'robot_status',
+	'owned_from'
+] as const;
 export const RAW_CELL_MAX = 500;
 export const RAW_PHONE_CELLS_MAX = 20;
 const CA_MAX = 50;
@@ -408,6 +447,19 @@ export function validateRow(input: unknown, rules: ImportRules): RowResult {
 	if (raw.ca_number) {
 		if (raw.ca_number.length <= CA_MAX) parsed.ca_number = raw.ca_number;
 		else warn('ca_too_long', 'ca_number', raw.ca_number.slice(0, CA_MAX) + '…');
+	}
+
+	if (raw.robot_status) {
+		const key = normText(raw.robot_status);
+		const hit = ROBOT_OUTCOMES.find((outcome) => (rules.robotStatusValues[outcome] ?? []).includes(key));
+		if (hit) parsed.robot_outcome = hit;
+		else warn('robot_status_unknown', 'robot_status', raw.robot_status);
+	}
+
+	if (raw.owned_from) {
+		const date = parseImportDate(raw.owned_from);
+		if (date) parsed.owned_from = date;
+		else warn('date_invalid', 'owned_from', raw.owned_from);
 	}
 
 	for (const cell of raw.phones ?? []) {
