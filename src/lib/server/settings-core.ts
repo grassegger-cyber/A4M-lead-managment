@@ -2,7 +2,7 @@
 // from constants. The settings screen writes through methods/settings.ts; other areas may only
 // remember a choice of the user through mergeSettingMap() below.
 import type { Ctx } from './context.ts';
-import type { Queryable } from './db.ts';
+import type { Queryable } from './db-types.ts';
 import { AppError } from './errors.ts';
 import { audit } from './companies-core.ts';
 

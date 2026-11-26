@@ -128,7 +128,7 @@
 		<div class="plate">
 			<EmptyState
 				title="Databáze je prázdná"
-				text="Zatím tu není žádné IČO. Nahrajte kmenový Excel na stránce Import. Smyšlená data na vyzkoušení: nejdřív zastavte aplikaci, pak spusťte příkaz npm run seed a aplikaci znovu spusťte."
+				text="Zatím tu není žádné IČO. Nahrajte kmenový Excel na stránce Import."
 			>
 				<Button href="/import">Přejít na import</Button>
 			</EmptyState>

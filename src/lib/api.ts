@@ -1,4 +1,6 @@
-// Browser helper for the application's API: call('area.name', args) and download('area.name', args).
+// Browser helper for the application's API: call('area.name', args).
+import { auth } from './auth.svelte';
+import { FUNCTION_REGION, LOCAL_MODE, SUPABASE_ANON_KEY, SUPABASE_URL } from './config';
 
 export class ApiError extends Error {
 	code: string;
@@ -12,97 +14,57 @@ export class ApiError extends Error {
 }
 
 export interface CallOptions {
-	/** Pass SvelteKit's fetch when calling from a load function. */
-	fetch?: typeof fetch;
 	signal?: AbortSignal;
 }
 
+const LOGIN_CODES = new Set(['unauthenticated', 'mfa_required']);
+
 async function post(method: string, args: unknown, options: CallOptions): Promise<Response> {
-	const doFetch = options.fetch ?? fetch;
+	const token = await auth.token();
+	if (!token) throw new ApiError('Nejste přihlášeni.', 'unauthenticated', 401);
+	const headers: Record<string, string> = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+	if (!LOCAL_MODE) {
+		headers.apikey = SUPABASE_ANON_KEY;
+		// Keeps the function, and with it the data, in the EU region of the project.
+		headers['x-region'] = FUNCTION_REGION;
+	}
 	try {
-		return await doFetch('/api', {
+		return await fetch(LOCAL_MODE ? '/api' : `${SUPABASE_URL}/functions/v1/api`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers,
 			body: JSON.stringify({ method, args: args ?? {} }),
-			credentials: 'same-origin',
 			signal: options.signal
 		});
 	} catch (e) {
 		if ((e as Error)?.name === 'AbortError') throw e;
-		throw new ApiError('Server neodpovídá. Zkontrolujte, že aplikace běží.', 'network', 0);
+		throw new ApiError('Server neodpovídá. Zkontrolujte připojení k internetu.', 'network', 0);
 	}
-}
-
-function handleUnauthenticated(method: string, code: string) {
-	if (code === 'unauthenticated' && !method.startsWith('auth.') && typeof window !== 'undefined') {
-		window.location.assign('/prihlaseni');
-	}
-}
-
-async function readError(method: string, response: Response): Promise<never> {
-	let message = 'Neočekávaná chyba serveru.';
-	let code = 'internal';
-	try {
-		const body = await response.json();
-		if (typeof body?.error === 'string') message = body.error;
-		if (typeof body?.code === 'string') code = body.code;
-	} catch {
-		// keep the generic message
-	}
-	handleUnauthenticated(method, code);
-	throw new ApiError(message, code, response.status);
 }
 
 /** Calls an API method and returns its data. Throws ApiError with a Czech message. */
 export async function call<T = unknown>(method: string, args?: unknown, options: CallOptions = {}): Promise<T> {
-	const response = await post(method, args, options);
-	const isJson = (response.headers.get('content-type') ?? '').includes('application/json');
-	if (!isJson) {
-		if (!response.ok) throw new ApiError('Neočekávaná chyba serveru.', 'internal', response.status);
-		throw new ApiError('Metoda vrací soubor. Použijte download().', 'not_json', response.status);
+	let response: Response;
+	try {
+		response = await post(method, args, options);
+	} catch (e) {
+		if (e instanceof ApiError && LOGIN_CODES.has(e.code)) toLogin();
+		throw e;
 	}
-	if (!response.ok) return readError(method, response);
-	const body = await response.json();
-	if (!body?.ok) {
-		handleUnauthenticated(method, body?.code ?? '');
-		throw new ApiError(body?.error ?? 'Neočekávaná chyba serveru.', body?.code ?? 'internal', response.status);
+	let body: { ok?: boolean; data?: unknown; error?: string; code?: string; message?: string } | null = null;
+	try {
+		body = await response.json();
+	} catch {
+		body = null;
 	}
-	return body.data as T;
+	if (response.ok && body?.ok) return body.data as T;
+	// The gateway in front of the function answers an expired token itself, in its own format.
+	const code = body?.code ?? (response.status === 401 ? 'unauthenticated' : 'internal');
+	const message =
+		typeof body?.error === 'string' ? body.error : response.status === 401 ? 'Přihlášení vypršelo.' : 'Neočekávaná chyba serveru.';
+	if (LOGIN_CODES.has(code)) toLogin();
+	throw new ApiError(message, code, response.status);
 }
 
-function filenameFrom(response: Response, fallback: string): string {
-	const header = response.headers.get('content-disposition') ?? '';
-	const utf = /filename\*=UTF-8''([^;]+)/i.exec(header);
-	if (utf) {
-		try {
-			return decodeURIComponent(utf[1]);
-		} catch {
-			// fall through
-		}
-	}
-	const plain = /filename="([^"]+)"/i.exec(header);
-	return plain ? plain[1] : fallback;
-}
-
-/** Calls an API method that returns a file and saves it through the browser. Returns the file name. */
-export async function download(method: string, args?: unknown, fallbackName = 'soubor'): Promise<string> {
-	const response = await post(method, args, {});
-	const isJson = (response.headers.get('content-type') ?? '').includes('application/json');
-	if (!response.ok || isJson) {
-		if (isJson && response.ok) {
-			const body = await response.json();
-			throw new ApiError(body?.error ?? 'Metoda nevrátila soubor.', body?.code ?? 'not_file', response.status);
-		}
-		return readError(method, response);
-	}
-	const name = filenameFrom(response, fallbackName);
-	const url = URL.createObjectURL(await response.blob());
-	const link = document.createElement('a');
-	link.href = url;
-	link.download = name;
-	document.body.appendChild(link);
-	link.click();
-	link.remove();
-	setTimeout(() => URL.revokeObjectURL(url), 10_000);
-	return name;
+function toLogin() {
+	if (typeof window !== 'undefined' && window.location.pathname !== '/prihlaseni') window.location.assign('/prihlaseni');
 }

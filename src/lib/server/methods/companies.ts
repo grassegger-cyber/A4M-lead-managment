@@ -1,15 +1,13 @@
 // companies.* methods: IČO list with search and filters, detail, manual state change,
-// manual override of the return / quarantine dates and the Excel export.
-import { PassThrough } from 'node:stream';
-import ExcelJS from 'exceljs';
+// manual override of the return / quarantine dates and the data of the Excel export (the file
+// itself is built in the browser).
 import type { Ctx, MethodMap } from '../context.ts';
 import { inTransaction } from '../context.ts';
-import type { Queryable } from '../db.ts';
+import type { Queryable } from '../db-types.ts';
 import { AppError } from '../errors.ts';
 import { audit, transition } from '../companies-core.ts';
 import type { TransitionExtra } from '../companies-core.ts';
 import { clampPageSize, getSetting, getSettings } from '../settings-core.ts';
-import { fileResponse, XLSX_MIME } from '../files.ts';
 import { parseIco } from '../../ico.ts';
 import {
 	CHANNELS,
@@ -289,9 +287,9 @@ const LIST_COLUMNS = `c.ico, c.name, c.subject_type, c.state, c.holder_type, c.h
 	c.region_name, c.district_code, c.district_name, c.sales_rep_id, c.cohort_id, c.channel, c.owned_from,
 	c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return, c.rounds_count, c.ico_valid`;
 
+/** Calendar day in Czech time, wherever the server runs (the cloud function runs in UTC). */
 function localIsoDate(d: Date): string {
-	const pad = (n: number) => String(n).padStart(2, '0');
-	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	return new Intl.DateTimeFormat('sv-SE', { timeZone: TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
 /** 'YYYY-MM-DD' plus a number of days. */
@@ -363,7 +361,17 @@ const EXPORT_COLUMNS: { header: string; key: string; width: number; date?: boole
 ];
 
 const yesNo = (value: boolean | null | undefined) => (value === null || value === undefined ? '' : value ? 'ano' : 'ne');
-const excelDate = (value: string | null) => (value ? new Date(`${value}T00:00:00Z`) : null);
+/** An export may fetch its rows for this long after it was logged. */
+const EXPORT_VALID_MS = 30 * 60_000;
+
+/** JSON text with object keys sorted, for comparing a filter with the one stored in jsonb. */
+function stableJson(value: unknown): string {
+	return JSON.stringify(value, (_key, v) =>
+		v && typeof v === 'object' && !Array.isArray(v)
+			? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+			: v
+	);
+}
 
 export const methods: MethodMap = {
 	/**
@@ -696,115 +704,113 @@ export const methods: MethodMap = {
 	},
 
 	/**
-	 * Excel export of everything the filter matches (same args as companies.list, paging ignored,
-	 * rows ordered by IČO). The audit row with the filter and the row count is written before any
-	 * data is read, in the same transaction.
+	 * Excel export, step 1 (same args as companies.list, paging ignored). Writes the audit row with
+	 * the filter and the row count and returns what the browser needs to build the file:
+	 * { exportId, total, filename, sheetName, columns }. The rows come from companies.exportRows.
 	 */
-	'companies.export': async (ctx, args) => {
+	'companies.exportStart': async (ctx, args) => {
 		const filter = parseFilter(args);
 		const where = buildWhere(filter);
 		return inTransaction(ctx, async (tx) => {
 			const total = await countCompanies(tx.db, where);
 			if (total === 0) throw new AppError('export_empty', 'Filtru neodpovídá žádné IČO, není co exportovat.');
-			await audit(tx, 'export.companies', {
+			const exportId = await audit(tx, 'export.companies', {
 				entity: 'companies',
 				description: `Export IČO do Excelu: ${total} řádků`,
 				details: { filter: filterForAudit(filter), rows: total }
 			});
-
-			const stream = new PassThrough();
-			const chunks: Buffer[] = [];
-			stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-			const finished = new Promise<void>((resolve, reject) => {
-				stream.on('end', () => resolve());
-				stream.on('error', reject);
-			});
-			const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream, useStyles: true, useSharedStrings: false });
-			const sheet = workbook.addWorksheet('IČO', { views: [{ state: 'frozen', ySplit: 1 }] });
-			sheet.columns = EXPORT_COLUMNS.map((column) => ({
-				header: column.header,
-				key: column.key,
-				width: column.width,
-				style: column.date ? { numFmt: 'dd". "mm". "yyyy' } : {}
-			}));
-			sheet.getRow(1).font = { bold: true };
-			sheet.getRow(1).commit();
-
-			const n = where.params.length;
-			const keyset = `${where.sql ? `${where.sql} and` : 'where'} c.ico > $${n + 1}::char(8)`;
-			let last = '';
-			let written = 0;
-			for (;;) {
-				const rows = await tx.db.query<Record<string, any>>(
-					`select c.*, r.name as sales_rep_name, co.code as cohort_code, ph.phones, ph.operators, ph.operator_verified_on
-					 from (
-						select c.ico, c.name, c.subject_type, c.state, c.holder_type, c.holder_login, c.sales_rep_id, c.cohort_id,
-							c.channel, c.owned_from, c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return,
-							c.rounds_count, c.region_name, c.district_name, c.ico_valid,
-							(c.ico_verified_at at time zone '${TIME_ZONE}')::date as ico_verified_on,
-							c.founded_on, c.nace_codes
-						from companies c ${keyset} order by c.ico limit ${EXPORT_CHUNK}
-					 ) c
-					 left join sales_reps r on r.id = c.sales_rep_id
-					 left join cohorts co on co.id = c.cohort_id
-					 left join lateral (
-						select string_agg(p.phone, ', ' order by p.is_primary desc, p.id) as phones,
-							string_agg(coalesce(p.operator, '?'), ', ' order by p.is_primary desc, p.id) as operators,
-							(max(p.operator_verified_at) at time zone '${TIME_ZONE}')::date as operator_verified_on
-						from company_phones p where p.ico = c.ico
-					 ) ph on true
-					 order by c.ico`,
-					[...where.params, last]
-				);
-				if (!rows.length) break;
-				for (const row of rows) {
-					sheet
-						.addRow({
-							ico: row.ico,
-							name: row.name ?? '',
-							subject_type: row.subject_type ?? '',
-							state_label: stateLabel(row.state),
-							state: row.state,
-							holder: HOLDER_LABELS[row.holder_type as HolderType] ?? row.holder_type,
-							holder_login: row.holder_login ?? '',
-							sales_rep_name: row.sales_rep_name ?? '',
-							cohort_code: row.cohort_code ?? '',
-							channel: row.channel ? (CHANNEL_LABELS[row.channel as keyof typeof CHANNEL_LABELS] ?? row.channel) : '',
-							owned_from: excelDate(row.owned_from),
-							ownership_ends_on: excelDate(row.ownership_ends_on),
-							return_on: excelDate(row.return_on),
-							quarantine_until: excelDate(row.quarantine_until),
-							never_return: yesNo(row.never_return),
-							rounds_count: row.rounds_count,
-							region_name: row.region_name ?? '',
-							district_name: row.district_name ?? '',
-							phones: row.phones ?? '',
-							operators: row.operators
-								? String(row.operators)
-										.split(', ')
-										.map((op) => OPERATOR_LABELS[op as keyof typeof OPERATOR_LABELS] ?? 'neověřeno')
-										.join(', ')
-								: '',
-							operator_verified_on: excelDate(row.operator_verified_on),
-							ico_valid: yesNo(row.ico_valid),
-							ico_verified_on: excelDate(row.ico_verified_on),
-							founded_on: excelDate(row.founded_on),
-							nace: Array.isArray(row.nace_codes) ? row.nace_codes.join(', ') : ''
-						})
-						.commit();
-				}
-				written += rows.length;
-				last = rows[rows.length - 1].ico;
-				if (rows.length < EXPORT_CHUNK) break;
-			}
-			sheet.commit();
-			await workbook.commit();
-			await finished;
-			if (written !== total) throw new Error(`export row count mismatch: counted ${total}, wrote ${written}`);
-
-			const response = fileResponse(new Uint8Array(Buffer.concat(chunks)), `ico-export-${localIsoDate(tx.now())}.xlsx`, XLSX_MIME);
-			response.headers.set('x-row-count', String(total));
-			return response;
+			return {
+				exportId,
+				total,
+				filename: `ico-export-${localIsoDate(tx.now())}.xlsx`,
+				sheetName: 'IČO',
+				columns: EXPORT_COLUMNS,
+				chunk: EXPORT_CHUNK
+			};
 		});
+	},
+
+	/**
+	 * Excel export, step 2: one page of rows ordered by IČO. args: the same filter as step 1 plus
+	 * { exportId, after }. Rows are handed out only for an export that was logged by the same
+	 * user with the same filter in the last 30 minutes, so no export escapes the audit log.
+	 * Returns { rows, last, done }; dates are 'YYYY-MM-DD' strings.
+	 */
+	'companies.exportRows': async (ctx, args) => {
+		const filter = parseFilter(args);
+		const where = buildWhere(filter);
+		const exportId = Number(args?.exportId);
+		const logged = Number.isInteger(exportId)
+			? await ctx.db.one<{ details: { filter?: unknown } | null; actor_id: string | null; actor_name: string | null; at: Date }>(
+					`select details, actor_id, actor_name, at from audit_log where id = $1 and action = 'export.companies'`,
+					[exportId]
+				)
+			: null;
+		const sameActor = logged && (logged.actor_id ?? null) === (ctx.actor.id ?? null) && logged.actor_name === ctx.actor.name;
+		const fresh = logged && ctx.now().getTime() - new Date(logged.at).getTime() < EXPORT_VALID_MS;
+		const sameFilter = logged && stableJson(logged.details?.filter ?? {}) === stableJson(filterForAudit(filter));
+		if (!sameActor || !fresh || !sameFilter) {
+			throw new AppError('export_not_started', 'Export nebyl zahájen nebo už vypršel. Spusťte ho znovu.', 409);
+		}
+		const after = typeof args?.after === 'string' ? args.after : '';
+		const n = where.params.length;
+		const keyset = `${where.sql ? `${where.sql} and` : 'where'} c.ico > $${n + 1}::char(8)`;
+		const rows = await ctx.db.query<Record<string, any>>(
+			`select c.*, r.name as sales_rep_name, co.code as cohort_code, ph.phones, ph.operators, ph.operator_verified_on
+			 from (
+				select c.ico, c.name, c.subject_type, c.state, c.holder_type, c.holder_login, c.sales_rep_id, c.cohort_id,
+					c.channel, c.owned_from, c.ownership_ends_on, c.return_on, c.quarantine_until, c.never_return,
+					c.rounds_count, c.region_name, c.district_name, c.ico_valid,
+					(c.ico_verified_at at time zone '${TIME_ZONE}')::date as ico_verified_on,
+					c.founded_on, c.nace_codes
+				from companies c ${keyset} order by c.ico limit ${EXPORT_CHUNK}
+			 ) c
+			 left join sales_reps r on r.id = c.sales_rep_id
+			 left join cohorts co on co.id = c.cohort_id
+			 left join lateral (
+				select string_agg(p.phone, ', ' order by p.is_primary desc, p.id) as phones,
+					string_agg(coalesce(p.operator, '?'), ', ' order by p.is_primary desc, p.id) as operators,
+					(max(p.operator_verified_at) at time zone '${TIME_ZONE}')::date as operator_verified_on
+				from company_phones p where p.ico = c.ico
+			 ) ph on true
+			 order by c.ico`,
+			[...where.params, after]
+		);
+		return {
+			rows: rows.map((row) => ({
+				ico: row.ico,
+				name: row.name ?? '',
+				subject_type: row.subject_type ?? '',
+				state_label: stateLabel(row.state),
+				state: row.state,
+				holder: HOLDER_LABELS[row.holder_type as HolderType] ?? row.holder_type,
+				holder_login: row.holder_login ?? '',
+				sales_rep_name: row.sales_rep_name ?? '',
+				cohort_code: row.cohort_code ?? '',
+				channel: row.channel ? (CHANNEL_LABELS[row.channel as keyof typeof CHANNEL_LABELS] ?? row.channel) : '',
+				owned_from: row.owned_from ?? null,
+				ownership_ends_on: row.ownership_ends_on ?? null,
+				return_on: row.return_on ?? null,
+				quarantine_until: row.quarantine_until ?? null,
+				never_return: yesNo(row.never_return),
+				rounds_count: row.rounds_count,
+				region_name: row.region_name ?? '',
+				district_name: row.district_name ?? '',
+				phones: row.phones ?? '',
+				operators: row.operators
+					? String(row.operators)
+							.split(', ')
+							.map((op) => OPERATOR_LABELS[op as keyof typeof OPERATOR_LABELS] ?? 'neověřeno')
+							.join(', ')
+					: '',
+				operator_verified_on: row.operator_verified_on ?? null,
+				ico_valid: yesNo(row.ico_valid),
+				ico_verified_on: row.ico_verified_on ?? null,
+				founded_on: row.founded_on ?? null,
+				nace: Array.isArray(row.nace_codes) ? row.nace_codes.join(', ') : ''
+			})),
+			last: rows.length ? rows[rows.length - 1].ico : after,
+			done: rows.length < EXPORT_CHUNK
+		};
 	}
 };

@@ -1,23 +1,63 @@
 <script lang="ts">
 	import { call } from '$lib/api';
+	import { auth } from '$lib/auth.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Field from '$lib/components/Field.svelte';
 
+	let email = $state('');
 	let password = $state('');
+	let code = $state('');
 	let error = $state<string | null>(null);
 	let busy = $state(false);
+	let enrol = $state<{ factorId: string; qr: string; secret: string } | null>(null);
 
-	async function submit(event: SubmitEvent) {
-		event.preventDefault();
+	const step = $derived(auth.status === 'needsCode' ? 'code' : auth.status === 'needsEnroll' ? 'enrol' : 'password');
+
+	// First login: prepare the QR code as soon as the password was accepted.
+	$effect(() => {
+		if (auth.status === 'needsEnroll' && !enrol && !busy) void prepareEnrol();
+	});
+
+	async function prepareEnrol() {
+		busy = true;
+		error = null;
+		try {
+			enrol = await auth.startEnroll();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Nastavení ověřovací aplikace se nepodařilo.';
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function run(action: () => Promise<void>, fallback: string) {
 		error = null;
 		busy = true;
 		try {
-			await call('auth.login', { password });
-			window.location.assign('/');
+			await action();
+			if (auth.status === 'ready') {
+				// The login is written to the audit log by the server; the layout then opens the overview.
+				await call('auth.sessionStarted').catch(() => undefined);
+			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Přihlášení se nepodařilo.';
+			error = e instanceof Error ? e.message : fallback;
+		} finally {
 			busy = false;
 		}
+	}
+
+	function submit(event: SubmitEvent) {
+		event.preventDefault();
+		if (step === 'password') void run(() => auth.signIn(email, password), 'Přihlášení se nepodařilo.');
+		else if (step === 'code') void run(() => auth.verifyCode(code), 'Ověření se nepodařilo.');
+		else if (enrol) void run(() => auth.confirmEnroll(enrol!.factorId, code), 'Ověření se nepodařilo.');
+	}
+
+	async function startOver() {
+		await auth.signOut();
+		password = code = '';
+		enrol = null;
+		error = null;
 	}
 </script>
 
@@ -30,9 +70,51 @@
 			<span class="logo-tile"><img src="/a4m-logo.png" alt="" width="118" height="28" /></span>
 			<p>A4M · Lead management</p>
 		</div>
-		<h1>Přihlášení <strong>do aplikace</strong></h1>
-		<Field label="Heslo" type="password" bind:value={password} autocomplete="current-password" required {error} autofocus />
-		<Button type="submit" loading={busy} fullWidth>{busy ? 'Přihlašuji…' : 'Přihlásit se'}</Button>
+		{#if step === 'password'}
+			<h1>Přihlášení <strong>do aplikace</strong></h1>
+			<Field label="E-mail" type="email" bind:value={email} autocomplete="username" required autofocus />
+			<Field label="Heslo" type="password" bind:value={password} autocomplete="current-password" required {error} />
+			<Button type="submit" loading={busy} fullWidth>{busy ? 'Přihlašuji…' : 'Pokračovat'}</Button>
+		{:else if step === 'code'}
+			<h1>Ověřovací <strong>kód</strong></h1>
+			<p class="text-muted">Opište šestimístný kód z ověřovací aplikace v telefonu.</p>
+			<Field
+				label="Kód z aplikace"
+				bind:value={code}
+				inputmode="numeric"
+				autocomplete="one-time-code"
+				maxlength={7}
+				required
+				{error}
+				autofocus
+			/>
+			<Button type="submit" loading={busy} fullWidth>{busy ? 'Ověřuji…' : 'Přihlásit se'}</Button>
+			<button type="button" class="link" onclick={startOver}>Přihlásit se jiným účtem</button>
+		{:else}
+			<h1>Nastavení <strong>dvoufázového ověření</strong></h1>
+			<p class="text-muted">
+				Bez něj se do aplikace nedostanete. V telefonu otevřete ověřovací aplikaci (Google Authenticator, Microsoft Authenticator,
+				1Password…), naskenujte kód a opište šest číslic, které ukáže.
+			</p>
+			{#if enrol}
+				<img class="qr" src={enrol.qr} alt="QR kód pro ověřovací aplikaci" width="192" height="192" />
+				<p class="secret">Nejde skenovat? Zadejte do aplikace ručně: <code>{enrol.secret}</code></p>
+				<Field
+					label="Kód z aplikace"
+					bind:value={code}
+					inputmode="numeric"
+					autocomplete="one-time-code"
+					maxlength={7}
+					required
+					{error}
+				/>
+				<Button type="submit" loading={busy} fullWidth>{busy ? 'Ověřuji…' : 'Dokončit a přihlásit'}</Button>
+			{:else if error}
+				<p class="failed" role="alert">{error}</p>
+				<Button type="button" onclick={prepareEnrol} loading={busy} fullWidth>Zkusit znovu</Button>
+			{/if}
+			<button type="button" class="link" onclick={startOver}>Přihlásit se jiným účtem</button>
+		{/if}
 	</form>
 </main>
 
@@ -47,7 +129,7 @@
 	.card {
 		display: grid;
 		gap: var(--space-4);
-		width: min(400px, 100%);
+		width: min(440px, 100%);
 		padding: var(--space-5);
 	}
 	.brand {
@@ -75,5 +157,30 @@
 	}
 	h1 {
 		margin-bottom: var(--space-1);
+	}
+	.qr {
+		justify-self: center;
+		border-radius: 12px;
+		background: #fff;
+		padding: 8px;
+	}
+	.secret {
+		font-size: var(--text-small);
+		color: var(--text-2);
+		overflow-wrap: anywhere;
+	}
+	.failed {
+		color: var(--danger, #b3261e);
+	}
+	.link {
+		justify-self: center;
+		min-height: var(--control-h);
+		padding: 0 var(--space-3);
+		border: 0;
+		background: none;
+		color: var(--text-2);
+		font: inherit;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 </style>

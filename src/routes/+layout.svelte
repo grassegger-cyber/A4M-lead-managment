@@ -10,9 +10,11 @@
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Toast from '$lib/components/Toast.svelte';
 	import { toast } from '$lib/components/toasts.svelte';
+	import { goto } from '$app/navigation';
 	import { call } from '$lib/api';
+	import { auth } from '$lib/auth.svelte';
 
-	let { data, children }: { data: { authenticated: boolean }; children: Snippet } = $props();
+	let { children }: { children: Snippet } = $props();
 
 	const nav = [
 		{ href: '/', label: 'Přehled', icon: LayoutDashboard },
@@ -23,8 +25,16 @@
 	];
 
 	const path = $derived(page.url.pathname);
-	const bare = $derived(!data.authenticated || path === '/prihlaseni' || path === '/nastaveni-hesla');
+	const onLogin = $derived(path === '/prihlaseni');
 	let loggingOut = $state(false);
+
+	// Convenience only: the server refuses everything without a session that passed 2FA.
+	void auth.init();
+	$effect(() => {
+		if (auth.status === 'loading' || auth.status === 'unconfigured') return;
+		if (auth.status !== 'ready' && !onLogin) void goto('/prihlaseni', { replaceState: true });
+		else if (auth.status === 'ready' && onLogin) void goto('/', { replaceState: true });
+	});
 
 	function isActive(href: string): boolean {
 		return href === '/' ? path === '/' : path === href || path.startsWith(href + '/');
@@ -33,7 +43,9 @@
 	async function logout() {
 		loggingOut = true;
 		try {
-			await call('auth.logout');
+			// The audit row is written while the session still exists; a failure must not block the logout.
+			await call('auth.sessionEnded').catch(() => undefined);
+			await auth.signOut();
 			window.location.assign('/prihlaseni');
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Odhlášení se nepodařilo.');
@@ -46,8 +58,14 @@
 	<title>Lead management A4M</title>
 </svelte:head>
 
-{#if bare}
+{#if auth.status === 'unconfigured'}
+	<main class="notice"><p>Aplikace není nastavená: chybí adresa serveru. Nasazení je potřeba spustit znovu.</p></main>
+{:else if auth.status === 'loading'}
+	<main class="notice" aria-busy="true"></main>
+{:else if onLogin}
 	{@render children()}
+{:else if auth.status !== 'ready'}
+	<main class="notice" aria-busy="true"></main>
 {:else}
 	<div class="shell">
 		<a class="skip" href="#obsah">Přeskočit na obsah</a>
@@ -82,6 +100,13 @@
 <Toast />
 
 <style>
+	.notice {
+		min-height: var(--vh);
+		display: grid;
+		place-items: center;
+		padding: var(--space-4);
+		color: var(--text-2);
+	}
 	/* Sidebar column (glass, inset from the window edge) and the main column. The document scrolls;
 	   the sidebar stays in view. */
 	.shell {

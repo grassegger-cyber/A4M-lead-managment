@@ -1,7 +1,6 @@
 // companies.* methods against an in-memory PGlite database with the real migrations.
 // Never touches ./data.nosync. All data is fictional (IČO 99xxxxxx, phones +420 000 …).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import ExcelJS from 'exceljs';
 import { openDb } from '../db.ts';
 import type { Db } from '../db.ts';
 import { systemCtx } from '../context.ts';
@@ -499,23 +498,29 @@ describe('companies.overrideDates', () => {
 });
 
 describe('companies.export', () => {
-	async function readXlsx(response: Response) {
-		const workbook = new ExcelJS.Workbook();
-		await workbook.xlsx.load(await response.arrayBuffer());
-		return workbook.worksheets[0];
+	/** Runs both steps of the export like the browser does and returns all rows. */
+	async function exportAll(args: Record<string, unknown> = {}) {
+		const start = await call('companies.exportStart', args);
+		const rows: Record<string, any>[] = [];
+		let after = '';
+		for (;;) {
+			const page = await call('companies.exportRows', { ...args, exportId: start.exportId, after });
+			rows.push(...page.rows);
+			after = page.last;
+			if (page.done) break;
+		}
+		return { start, rows };
 	}
 
 	it('exports the filtered rows and writes the row count to the audit log', async () => {
-		const response = (await call('companies.export', { filter: { state: ['superuser'] } })) as Response;
-		expect(response).toBeInstanceOf(Response);
-		expect(response.headers.get('content-type')).toContain('spreadsheetml');
-		expect(response.headers.get('content-disposition')).toContain(`ico-export-${TODAY}.xlsx`);
-		const sheet = await readXlsx(response);
-		expect(sheet.rowCount).toBe(1 + 19); // header + superuser rows (three left the superuser above, two arrived)
-		expect(sheet.getRow(1).getCell(1).value).toBe('IČO');
-		expect(sheet.getRow(2).getCell(1).value).toBe(ico(2));
-		expect(sheet.getRow(2).getCell(4).value).toBe('Superuser');
-		expect(sheet.getRow(2).getCell(12).value).toBeInstanceOf(Date);
+		const { start, rows } = await exportAll({ filter: { state: ['superuser'] } });
+		expect(start.filename).toBe(`ico-export-${TODAY}.xlsx`);
+		expect(start.total).toBe(19); // superuser rows (three left the superuser above, two arrived)
+		expect(start.columns[0]).toMatchObject({ header: 'IČO', key: 'ico' });
+		expect(rows).toHaveLength(19);
+		expect(rows[0].ico).toBe(ico(2));
+		expect(rows[0].state_label).toBe('Superuser');
+		expect(rows[0].ownership_ends_on).toMatch(/^2026-12-\d\d$/);
 		const row = await db.one<{ details: any; description: string; actor_name: string }>(
 			`select details, description, actor_name from audit_log where action = 'export.companies' order by id desc limit 1`
 		);
@@ -523,28 +528,42 @@ describe('companies.export', () => {
 		expect(row!.actor_name).toBe('Test');
 	});
 
-	it('exports everything in chunks ordered by IČO', async () => {
-		const sheet = await readXlsx((await call('companies.export', {})) as Response);
-		expect(sheet.rowCount).toBe(1 + COUNT);
-		expect(sheet.getRow(COUNT + 1).getCell(1).value).toBe(ico(COUNT));
+	it('exports everything ordered by IČO', async () => {
+		const { rows } = await exportAll();
+		expect(rows).toHaveLength(COUNT);
+		expect(rows[COUNT - 1].ico).toBe(ico(COUNT));
 	});
 
 	it('writes the verification dates as Czech calendar days', async () => {
 		// Stamped at 00:30 Czech time on 20 November (19 November in UTC) by the list test above.
-		const sheet = await readXlsx((await call('companies.export', { search: ico(5) })) as Response);
-		const headers = (sheet.getRow(1).values as unknown[]).map(String);
-		const cell = (name: string) => sheet.getRow(2).getCell(headers.indexOf(name)).value as Date;
-		expect(sheet.getRow(2).getCell(1).value).toBe(ico(5));
-		expect(cell('IČO ověřeno').toISOString().slice(0, 10)).toBe('2026-11-20');
-		expect(cell('Operátor ověřen').toISOString().slice(0, 10)).toBe('2026-11-20');
+		const { rows } = await exportAll({ search: ico(5) });
+		expect(rows[0].ico).toBe(ico(5));
+		expect(rows[0].ico_verified_on).toBe('2026-11-20');
+		expect(rows[0].operator_verified_on).toBe('2026-11-20');
+	});
+
+	it('hands out rows only for an export that was logged with the same filter by the same user', async () => {
+		const start = await call('companies.exportStart', { filter: { state: ['superuser'] } });
+		await expectError(call('companies.exportRows', { exportId: start.exportId, after: '' }), 'export_not_started');
+		await expectError(call('companies.exportRows', { filter: { state: ['superuser'] }, after: '' }), 'export_not_started');
+		const other = { ...ctx, actor: { id: null, name: 'Někdo jiný' } };
+		await expectError(
+			methods['companies.exportRows'](other, { filter: { state: ['superuser'] }, exportId: start.exportId, after: '' }) as Promise<unknown>,
+			'export_not_started'
+		);
+		const late = { ...ctx, now: () => new Date(fixedNow.getTime() + 31 * 60_000) };
+		await expectError(
+			methods['companies.exportRows'](late, { filter: { state: ['superuser'] }, exportId: start.exportId, after: '' }) as Promise<unknown>,
+			'export_not_started'
+		);
 	});
 
 	it('never logs a searched phone number and refuses an empty export', async () => {
-		await call('companies.export', { search: '+420 000 100 007' });
+		await call('companies.exportStart', { search: '+420 000 100 007' });
 		const row = await db.one<{ details: any }>(`select details from audit_log where action = 'export.companies' order by id desc limit 1`);
 		expect(row!.details).toEqual({ filter: { search: '[telefonní číslo]' }, rows: 1 });
 		const before = await db.one<{ n: number }>(`select count(*)::int as n from audit_log where action = 'export.companies'`);
-		await expectError(call('companies.export', { search: 'neexistující název' }), 'export_empty');
+		await expectError(call('companies.exportStart', { search: 'neexistující název' }), 'export_empty');
 		const after = await db.one<{ n: number }>(`select count(*)::int as n from audit_log where action = 'export.companies'`);
 		expect(after!.n).toBe(before!.n);
 	});

@@ -8,32 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export type Row = Record<string, unknown>;
-
-/** Query helpers shared by the database handle and by a transaction handle. */
-export interface Queryable {
-	/** Runs one statement with $1.. parameters and returns all rows. */
-	query<T = Row>(sql: string, params?: unknown[]): Promise<T[]>;
-	/** Like query, returns the first row or null. */
-	one<T = Row>(sql: string, params?: unknown[]): Promise<T | null>;
-	/** Runs one statement and returns the number of affected rows. */
-	run(sql: string, params?: unknown[]): Promise<number>;
-	/** Runs several statements separated by semicolons (no parameters). */
-	exec(sql: string): Promise<void>;
-	/**
-	 * Runs fn in a transaction (commit on return, rollback on throw).
-	 * Called on a transaction handle it opens a savepoint instead.
-	 */
-	transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
-	/** True for a transaction handle. Some statements (VACUUM) cannot run inside a transaction. */
-	readonly inTransaction: boolean;
-}
-
-export interface Db extends Queryable {
-	close(): Promise<void>;
-	/** The folder holding the database, or null for an in-memory database. */
-	readonly dataDir: string | null;
-}
+import type { Db, Queryable, Row } from './db-types.ts';
+export type { Db, Queryable, Row } from './db-types.ts';
 
 interface RawExecutor {
 	query(sql: string, params?: unknown[]): Promise<{ rows: unknown[]; affectedRows?: number }>;
@@ -247,9 +223,38 @@ function releaseLock(lockPath: string): void {
 	removeLockFile(lockPath);
 }
 
+async function openTestPostgres(adminUrl: string, migrations: string): Promise<Db> {
+	const { default: postgres } = await import('postgres');
+	const { openPostgres } = await import('./db-postgres.ts');
+	const name = `lm_test_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+	const admin = openPostgres(postgres as never, adminUrl, { max: 1 });
+	await admin.exec(`create database ${name}`);
+	const url = new URL(adminUrl);
+	url.pathname = `/${name}`;
+	const db = openPostgres(postgres as never, url.toString(), { max: 1 });
+	try {
+		await migrate(db, migrations);
+	} catch (e) {
+		await db.close();
+		await admin.close();
+		throw e;
+	}
+	return {
+		...db,
+		async close() {
+			await db.close();
+			await admin.exec(`drop database if exists ${name} with (force)`);
+			await admin.close();
+		}
+	};
+}
+
 /** Opens a database and applies pending migrations. Prefer getDb() in app code. */
 export async function openDb(options: OpenOptions = {}): Promise<Db> {
 	const inMemory = options.dir === 'memory';
+	// Tests can run against a real Postgres (the engine of the cloud) instead of PGlite:
+	// TEST_PG_URL=postgres://… npm test. Every call gets a database of its own.
+	if (inMemory && process.env.TEST_PG_URL) return openTestPostgres(process.env.TEST_PG_URL, options.migrations ?? migrationsDir());
 	const dir = inMemory ? null : path.resolve(options.dir ?? path.join(dataDir(), 'pglite'));
 	let lockPath: string | null = null;
 	if (dir) {

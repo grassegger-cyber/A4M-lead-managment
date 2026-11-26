@@ -6,7 +6,6 @@ import { inTransaction } from '../context.ts';
 import { AppError } from '../errors.ts';
 import { audit, recordInitialState } from '../companies-core.ts';
 import { clampPageSize, getSetting, getSettings, mergeSettingMap } from '../settings-core.ts';
-import { fileResponse, XLSX_MIME } from '../files.ts';
 import {
 	DISTRICT_REGION_CODES,
 	IMPORT_FIELDS,
@@ -455,22 +454,57 @@ function warningText(w: RowWarning): string {
 	return ROW_WARNING_LABELS[w.code] ?? w.code;
 }
 
-async function buildReport(ctx: Ctx, imp: ImportRow): Promise<{ body: Uint8Array; rows: number }> {
-	const { default: ExcelJS } = await import('exceljs');
-	const workbook = new ExcelJS.Workbook();
-	workbook.created = ctx.now();
+const REPORT_SHEETS: { name: string; kind: ProblemKind }[] = [
+	{ name: 'Neplatná IČO', kind: 'invalid_ico' },
+	{ name: 'Duplicity', kind: 'duplicate' },
+	{ name: 'Ostatní chyby', kind: 'error' },
+	{ name: 'Upozornění', kind: 'warning' }
+];
+const REPORT_PAGE = 5000;
 
-	const info = workbook.addWorksheet('Souhrn');
-	info.columns = [{ width: 44 }, { width: 28 }];
-	const fmt = (d: Date | null) =>
-		d
-			? `${String(d.getDate()).padStart(2, '0')}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-			: '';
-	const lines: [string, string | number][] = [
+function reportColumns(kind: ProblemKind): { header: string; width: number }[] {
+	return kind === 'warning'
+		? [
+				{ header: 'Řádek v Excelu', width: 16 },
+				{ header: 'IČO', width: 12 },
+				{ header: 'Název', width: 40 },
+				{ header: 'Pole', width: 22 },
+				{ header: 'Hodnota v souboru', width: 28 },
+				{ header: 'Upozornění', width: 48 }
+			]
+		: [
+				{ header: 'Řádek v Excelu', width: 16 },
+				{ header: 'IČO v souboru', width: 16 },
+				{ header: 'Název', width: 40 },
+				{ header: 'Problém', width: 52 }
+			];
+}
+
+/** Date and time in Czech time, wherever the server runs. */
+function czDateTime(d: Date | null): string {
+	if (!d) return '';
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat('en-GB', {
+			timeZone: 'Europe/Prague',
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			hourCycle: 'h23'
+		})
+			.formatToParts(new Date(d))
+			.map((part) => [part.type, part.value])
+	);
+	return `${parts.day}. ${parts.month}. ${parts.year} ${parts.hour}:${parts.minute}`;
+}
+
+function reportSummary(imp: ImportRow): [string, string | number][] {
+	return [
 		['Import č.', imp.id],
 		['Soubor', imp.filename],
 		['List', imp.sheet_name ?? ''],
-		['Nahráno', fmt(imp.created_at)],
+		['Nahráno', czDateTime(imp.created_at)],
 		['Nahrál', imp.created_by_name ?? ''],
 		['Stav importu', STATUS_LABELS[imp.status]],
 		['Řádků s daty', imp.received_rows],
@@ -482,59 +516,15 @@ async function buildReport(ctx: Ctx, imp: ImportRow): Promise<{ body: Uint8Array
 		['Ostatní chyby', imp.rows_error ?? 0],
 		['Řádky s upozorněním (zapíšou se bez vadné hodnoty)', imp.rows_warning ?? 0]
 	];
-	for (const line of lines) info.addRow(line);
-	info.getColumn(1).font = { bold: true };
+}
 
-	let total = 0;
-	const sheet = async (name: string, kind: ProblemKind) => {
-		const ws = workbook.addWorksheet(name);
-		const isWarning = kind === 'warning';
-		ws.columns = isWarning
-			? [
-					{ header: 'Řádek v Excelu', width: 16 },
-					{ header: 'IČO', width: 12 },
-					{ header: 'Název', width: 40 },
-					{ header: 'Pole', width: 22 },
-					{ header: 'Hodnota v souboru', width: 28 },
-					{ header: 'Upozornění', width: 48 }
-				]
-			: [
-					{ header: 'Řádek v Excelu', width: 16 },
-					{ header: 'IČO v souboru', width: 16 },
-					{ header: 'Název', width: 40 },
-					{ header: 'Problém', width: 52 }
-				];
-		ws.getRow(1).font = { bold: true };
-		ws.views = [{ state: 'frozen', ySplit: 1 }];
-		// Read in pages so a file with many problems does not sit in memory at once.
-		let after = 0;
-		for (;;) {
-			const rows = await ctx.db.query<ProblemRow>(
-				`select row_no, status, data, ico, error_code, duplicate_of, warnings from import_rows
-				 where import_id = $1 and row_no > $2 and ${problemWhere(kind)} order by row_no limit 5000`,
-				[imp.id, after]
-			);
-			if (!rows.length) break;
-			for (const r of rows) {
-				if (isWarning) {
-					for (const w of r.warnings ?? []) {
-						ws.addRow([r.row_no, r.ico ?? r.data.ico ?? '', r.data.name ?? '', IMPORT_FIELD_LABELS[w.field] ?? w.field, w.value, warningText(w)]);
-					}
-				} else {
-					ws.addRow([r.row_no, r.data.ico ?? '', r.data.name ?? '', problemText(r)]);
-				}
-				total++;
-			}
-			after = rows[rows.length - 1].row_no;
-		}
-	};
-	await sheet('Neplatná IČO', 'invalid_ico');
-	await sheet('Duplicity', 'duplicate');
-	await sheet('Ostatní chyby', 'error');
-	await sheet('Upozornění', 'warning');
-
-	const buffer = await workbook.xlsx.writeBuffer();
-	return { body: new Uint8Array(buffer as ArrayBuffer), rows: total };
+async function reportableImport(ctx: Ctx, id: number): Promise<ImportRow> {
+	const imp = await readImport(ctx, id);
+	if (imp.rows_new === null) throw new AppError('import_not_validated', `Import č. ${id} ještě není zkontrolovaný.`, 409);
+	if (imp.rows_purged_at) {
+		throw new AppError('rows_purged', `Řádky importu č. ${id} už byly smazány, report nejde sestavit.`, 409);
+	}
+	return imp;
 }
 
 // ---------- methods ----------
@@ -882,21 +872,57 @@ export const methods: MethodMap = {
 		};
 	},
 
-	/** Error report as an .xlsx download (invalid IČO, duplicates, other errors, warnings). args: { id } */
-	'imports.report': async (ctx, args) => {
+	/**
+	 * Error report, step 1 (the .xlsx itself is built in the browser). args: { id }. Writes the audit
+	 * row and returns { filename, summary: [label, value][], sheets: [{ name, kind, columns }], rows }.
+	 */
+	'imports.reportStart': async (ctx, args) => {
 		const id = importId(args);
-		const imp = await readImport(ctx, id);
-		if (imp.rows_new === null) throw new AppError('import_not_validated', `Import č. ${id} ještě není zkontrolovaný.`, 409);
-		if (imp.rows_purged_at) {
-			throw new AppError('rows_purged', `Řádky importu č. ${id} už byly smazány, report nejde sestavit.`, 409);
-		}
-		const report = await buildReport(ctx, imp);
+		const imp = await reportableImport(ctx, id);
+		const rows = (await ctx.db.one<{ n: number }>(
+			`select count(*)::int as n from import_rows
+			 where import_id = $1 and (status in ('invalid_ico', 'duplicate', 'error') or warnings is not null)`,
+			[id]
+		))!.n;
 		await audit(ctx, 'import.report_downloaded', {
 			entity: 'import',
 			entityId: id,
-			description: `Stažen report chyb importu č. ${id} (${report.rows} řádků)`,
-			details: { filename: imp.filename, rows: report.rows }
+			description: `Stažen report chyb importu č. ${id} (${rows} řádků)`,
+			details: { filename: imp.filename, rows }
 		});
-		return fileResponse(report.body, `import-${id}-report-chyb.xlsx`, XLSX_MIME);
+		return {
+			filename: `import-${id}-report-chyb.xlsx`,
+			summary: reportSummary(imp),
+			sheets: REPORT_SHEETS.map((sheet) => ({ ...sheet, columns: reportColumns(sheet.kind) })),
+			rows
+		};
+	},
+
+	/**
+	 * Error report, step 2: one page of one sheet. args: { id, kind, after } (after = last row number
+	 * of the previous page). Returns { rows: cell values in column order, last, done }.
+	 */
+	'imports.reportRows': async (ctx, args) => {
+		const id = importId(args);
+		const kind = args?.kind as ProblemKind;
+		if (!PROBLEM_KINDS.includes(kind)) throw new AppError('kind_invalid', 'Neznámý druh řádků.');
+		await reportableImport(ctx, id);
+		const after = Math.max(0, Math.floor(Number(args?.after)) || 0);
+		const found = await ctx.db.query<ProblemRow>(
+			`select row_no, status, data, ico, error_code, duplicate_of, warnings from import_rows
+			 where import_id = $1 and row_no > $2 and ${problemWhere(kind)} order by row_no limit ${REPORT_PAGE}`,
+			[id, after]
+		);
+		const rows: (string | number)[][] = [];
+		for (const r of found) {
+			if (kind === 'warning') {
+				for (const w of r.warnings ?? []) {
+					rows.push([r.row_no, r.ico ?? r.data.ico ?? '', r.data.name ?? '', IMPORT_FIELD_LABELS[w.field] ?? w.field, w.value, warningText(w)]);
+				}
+			} else {
+				rows.push([r.row_no, r.data.ico ?? '', r.data.name ?? '', problemText(r)]);
+			}
+		}
+		return { rows, last: found.length ? found[found.length - 1].row_no : after, done: found.length < REPORT_PAGE };
 	}
 };

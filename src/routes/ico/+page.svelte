@@ -5,7 +5,9 @@
 	import Download from '@lucide/svelte/icons/download';
 	import Search from '@lucide/svelte/icons/search';
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
-	import { call, download } from '$lib/api';
+	import { call } from '$lib/api';
+	import { buildWorkbook, saveBlob } from '$lib/excel/write';
+	import type { SheetColumn } from '$lib/excel/write';
 	import {
 		CHANNELS,
 		CHANNEL_LABELS,
@@ -268,8 +270,23 @@
 	}
 
 	async function runExport() {
-		const name = await download('companies.export', toApiArgs(form), 'ico-export.xlsx');
-		toast.success(`Export je stažený: ${name}`);
+		// Step 1 writes the audit row; the rows are handed out only for that logged export.
+		const args = toApiArgs(form);
+		const start = await call<{ exportId: number; filename: string; sheetName: string; columns: SheetColumn[] }>('companies.exportStart', args);
+		const rows: Record<string, unknown>[] = [];
+		let after = '';
+		for (;;) {
+			const part = await call<{ rows: Record<string, unknown>[]; last: string; done: boolean }>('companies.exportRows', {
+				...args,
+				exportId: start.exportId,
+				after
+			});
+			rows.push(...part.rows);
+			after = part.last;
+			if (part.done) break;
+		}
+		saveBlob(await buildWorkbook([{ name: start.sheetName, columns: start.columns, rows }]), start.filename);
+		toast.success(`Export je stažený: ${start.filename}`);
 	}
 
 	/** Opens the detail next to the list; on a narrow window, where it would not fit, as a page. */
@@ -480,7 +497,7 @@
 					emptyTitle={activeCount ? 'Filtru neodpovídá žádné IČO' : 'Databáze je prázdná'}
 					emptyText={activeCount
 						? 'Zkuste filtr uvolnit nebo zrušit.'
-						: 'Nahrajte kmenový Excel na stránce Import. Smyšlená data na vyzkoušení: nejdřív zastavte aplikaci, pak spusťte příkaz npm run seed a aplikaci znovu spusťte.'}
+						: 'Nahrajte kmenový Excel na stránce Import.'}
 				>
 					{#snippet cell({ row, column, value })}
 						{@const current = row.ico === detailIco}

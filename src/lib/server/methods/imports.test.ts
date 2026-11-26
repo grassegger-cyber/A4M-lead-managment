@@ -1,7 +1,6 @@
 // Import flow against an in-memory PGlite database with the real migrations.
 // Never touches ./data.nosync. Only fictional data (IČO range 99…, phones +420 000 …).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import ExcelJS from 'exceljs';
 import { openDb } from '../db.ts';
 import type { Db } from '../db.ts';
 import { systemCtx } from '../context.ts';
@@ -148,16 +147,19 @@ describe('imports: validate, report, apply', () => {
 		expect(warn.items[0].problem).toContain('12345');
 		await expectError(call('imports.rows', { id, kind: 'new' }), 'kind_invalid');
 
-		const response = (await call('imports.report', { id })) as Response;
-		expect(response.headers.get('content-disposition')).toContain(`import-${id}-report-chyb.xlsx`);
-		const workbook = new ExcelJS.Workbook();
-		await workbook.xlsx.load(await response.arrayBuffer());
-		expect(workbook.worksheets.map((w) => w.name)).toEqual(['Souhrn', 'Neplatná IČO', 'Duplicity', 'Ostatní chyby', 'Upozornění']);
-		expect(workbook.getWorksheet('Neplatná IČO')!.rowCount).toBe(3); // header + 2
-		expect(workbook.getWorksheet('Duplicity')!.rowCount).toBe(3);
-		expect(workbook.getWorksheet('Ostatní chyby')!.rowCount).toBe(2);
-		expect(workbook.getWorksheet('Upozornění')!.rowCount).toBe(3); // header + 2 warnings of one row
-		expect(workbook.getWorksheet('Neplatná IČO')!.getRow(2).getCell(4).value).toBe('IČO má neplatnou kontrolní číslici');
+		const report = await call('imports.reportStart', { id });
+		expect(report.filename).toBe(`import-${id}-report-chyb.xlsx`);
+		expect(report.summary[0]).toEqual(['Import č.', id]);
+		expect(report.sheets.map((sheet: { name: string }) => sheet.name)).toEqual(['Neplatná IČO', 'Duplicity', 'Ostatní chyby', 'Upozornění']);
+		const sheetRows = async (kind: string) => (await call('imports.reportRows', { id, kind, after: 0 })).rows;
+		expect(await sheetRows('invalid_ico')).toHaveLength(2);
+		expect(await sheetRows('duplicate')).toHaveLength(2);
+		expect(await sheetRows('error')).toHaveLength(1);
+		expect(await sheetRows('warning')).toHaveLength(2); // 2 warnings of one row
+		expect((await sheetRows('invalid_ico'))[0][3]).toBe('IČO má neplatnou kontrolní číslici');
+		const page = await call('imports.reportRows', { id, kind: 'duplicate', after: 0 });
+		expect(page.done).toBe(true);
+		expect((await call('imports.reportRows', { id, kind: 'duplicate', after: page.last })).rows).toHaveLength(0);
 	});
 
 	it('writes nothing without the explicit confirmation', async () => {
@@ -291,7 +293,7 @@ describe('imports: validate, report, apply', () => {
 		const later = { ...ctx, now: () => new Date(Date.now() + 60_000) };
 		await methods['imports.list'](later, {});
 		expect((await db.one<{ n: number }>('select count(*)::int as n from import_rows where import_id = $1', [id]))!.n).toBe(0);
-		await expectError(call('imports.report', { id }), 'rows_purged');
+		await expectError(call('imports.reportStart', { id }), 'rows_purged');
 	});
 });
 

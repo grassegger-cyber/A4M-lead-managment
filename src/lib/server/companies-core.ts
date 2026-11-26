@@ -17,11 +17,11 @@ export interface AuditEntry {
 	details?: Record<string, unknown> | null;
 }
 
-/** Appends one row to audit_log. Call it inside the same transaction as the change. */
-export async function audit(ctx: Ctx, action: string, entry: AuditEntry = {}): Promise<void> {
-	await ctx.db.run(
+/** Appends one row to audit_log and returns its id. Call it inside the same transaction as the change. */
+export async function audit(ctx: Ctx, action: string, entry: AuditEntry = {}): Promise<number> {
+	const row = await ctx.db.one<{ id: number }>(
 		`insert into audit_log (at, actor_id, actor_name, action, entity, entity_id, description, details, ip, user_agent)
-		 values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
+		 values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) returning id`,
 		[
 			ctx.now(),
 			ctx.actor.id,
@@ -35,6 +35,7 @@ export async function audit(ctx: Ctx, action: string, entry: AuditEntry = {}): P
 			ctx.userAgent
 		]
 	);
+	return Number(row!.id);
 }
 
 export interface TransitionExtra {

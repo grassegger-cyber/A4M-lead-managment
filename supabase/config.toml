@@ -1,0 +1,7 @@
+# Settings of the Supabase project that live in the repository. The project itself is chosen at
+# deploy time (repository variable SUPABASE_PROJECT_REF), nothing secret is here.
+project_id = "a4m-lead-management"
+
+[functions.api]
+# The gateway refuses a request without a valid login token before the function even starts.
+verify_jwt = true

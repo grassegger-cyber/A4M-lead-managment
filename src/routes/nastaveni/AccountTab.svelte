@@ -1,34 +1,30 @@
 <script lang="ts">
-	/** Password change. Uses the scaffold method auth.changePassword (needs the current password). */
+	/** Password change. The session already passed 2FA, so the current password is not asked again. */
 	import { call } from '$lib/api';
+	import { auth, MIN_PASSWORD_LENGTH } from '$lib/auth.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Field from '$lib/components/Field.svelte';
 	import { toast } from '$lib/components/toasts.svelte';
 
-	let current = $state('');
 	let next = $state('');
 	let repeat = $state('');
 	let busy = $state(false);
-	let errors = $state<{ current?: string; next?: string; repeat?: string }>({});
+	let errors = $state<{ next?: string; repeat?: string }>({});
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
 		errors = {};
-		if (!current) errors.current = 'Zadejte současné heslo.';
-		if (!next) errors.next = 'Zadejte nové heslo.';
-		else if (next === current) errors.next = 'Nové heslo se musí lišit od současného.';
+		if (next.length < MIN_PASSWORD_LENGTH) errors.next = `Heslo musí mít aspoň ${MIN_PASSWORD_LENGTH} znaků.`;
 		if (repeat !== next) errors.repeat = 'Hesla se neshodují.';
 		if (Object.keys(errors).length > 0) return;
 		busy = true;
 		try {
-			await call('auth.changePassword', { currentPassword: current, newPassword: next });
-			current = next = repeat = '';
-			toast.success('Heslo je změněné. Ostatní přihlášení byla ukončena.');
+			await auth.changePassword(next);
+			await call('auth.passwordChanged').catch(() => undefined);
+			next = repeat = '';
+			toast.success('Heslo je změněné.');
 		} catch (err) {
-			const message = err instanceof Error ? err.message : 'Heslo se nepodařilo změnit.';
-			const code = (err as { code?: string })?.code;
-			if (code === 'login_failed') errors.current = message;
-			else errors.next = message;
+			errors.next = err instanceof Error ? err.message : 'Heslo se nepodařilo změnit.';
 		} finally {
 			busy = false;
 		}
@@ -39,11 +35,10 @@
 <div class="panel panel-pad account">
 	<h2>Změna hesla</h2>
 	<p class="text-muted">
-		Aplikace má jedno heslo. Po změně zůstanete přihlášeni v tomto prohlížeči, všechna ostatní přihlášení skončí. Změna se
-		zapíše do auditu.
+		Přihlášeni jste jako {auth.email ?? '—'}. Heslo platí jen pro váš účet; při přihlášení se k němu vždy zadává i kód z ověřovací
+		aplikace. Změna se zapíše do auditu.
 	</p>
 	<form onsubmit={submit} novalidate>
-		<Field label="Současné heslo" type="password" autocomplete="current-password" bind:value={current} error={errors.current} />
 		<Field label="Nové heslo" type="password" autocomplete="new-password" bind:value={next} error={errors.next} />
 		<Field label="Nové heslo znovu" type="password" autocomplete="new-password" bind:value={repeat} error={errors.repeat} />
 		<div class="submit"><Button type="submit" loading={busy}>{busy ? 'Ukládám…' : 'Změnit heslo'}</Button></div>

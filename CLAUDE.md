@@ -6,7 +6,8 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 
 - `docs/00-zadani.md` — zadání. Je závazné, při rozporu má přednost. Na jeho konci jsou Změny zadání (rozhodnutí Thomase), ty mají přednost před původním textem.
 - `docs/01-navrh-reseni.md` — schválený návrh architektury, datového modelu, integrací a pořadí stavby. Před prací na kroku si přečti jeho část a oddíly 8 (otevřená rozhodnutí) a 9 (podklady).
-- `docs/02-lokalni-beh.md` — jak spustit místní variantu, kde leží data a známá omezení.
+- `docs/02-lokalni-beh.md` — co zbylo z místní varianty (instalace závislostí, složky `.nosync`).
+- `docs/03-ostry-provoz.md` — ostrá cloudová verze: jak drží pohromadě, co nastavuje Thomas, nasazení, místní běh pro vývoj, co je neověřeno.
 
 ## Pravidla práce
 
@@ -38,8 +39,11 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 
 ## Stav projektu
 
-- Krok 2 (master databáze) je postavený jako místní varianta a běží jen na Thomasově Macu (stav k 20. 11. 2026, zatím necommitnuto): SvelteKit se serverem (adapter-node), databáze PGlite ve složce `data.nosync/`, přihlášení jedním heslem, jedna adresa `POST /api`. V databázi jsou jen smyšlená data. Spuštění a rozdíly proti cloudovému návrhu popisuje `docs/02-lokalni-beh.md`.
-- Cílový stack zůstává schválený, ale zatím není nasazený (stejný jako tipařský portál): SvelteKit jako statická aplikace na Cloudflare Pages, samostatný projekt Supabase ve Frankfurtu, jedna serverová funkce `api`, povinné 2FA (TOTP), nasazení pushem do `main` přes GitHub Actions, migrace ručně s náhledem.
+- Krok 2 (master databáze) je postavený. Od 26. 11. 2026 je kód převedený na cloud podle schváleného návrhu: statická aplikace (adapter-static) pro Cloudflare Pages, jedna funkce `api` v Supabase (`supabase/functions/api`, kód v `src/lib/server`), přihlášení přes Supabase Auth s povinným 2FA (TOTP), whitelist e-mailů, RLS bez politik na všech tabulkách, nasazení přes GitHub Actions z větve `main`, migrace ručně s náhledem. Postup a seznam neověřených bodů je v `docs/03-ostry-provoz.md`. Na skutečném Supabase a Cloudflare zatím neběželo.
+- Ostrá data nahrává jen Thomas přes Import po přihlášení. V cloudové databázi se smyšlená data nezakládají.
+- Místní běh (`npm run dev`) slouží jen k vývoji: bez přihlášení, databáze PGlite v paměti, smyšlená data.
+- Excel (import, export IČO, report chyb) se čte i zapisuje v prohlížeči; server vydává jen data po stránkách a export zapisuje do auditu předem.
+- Nepostaveno: noční šifrované zálohy, plánovač a fronta úloh.
 - Rozhodnuto 19. 11. 2026: Supabase na tarifu zdarma, zálohy vlastní a šifrované.
 - Zálohy schváleny 19. 11. 2026: noční, šifrované před odesláním (klíč drží jen Thomas), Cloudflare R2 v EU, držení 30 dní.
 - Repozitář je veřejný (rozhodnuto 19. 11. 2026). Vše, co se commitne, uvidí kdokoli: jen smyšlená data, žádné reálné vzory souborů, klíče ani zálohy.
@@ -52,9 +56,9 @@ Před každým návrhem commitu spusť všechny tři a nech je projít:
 
 - `npm run check` (typy),
 - `npm test` (testy; na místní data ve složce `data.nosync/` nesahají),
-- `npm run build` (sestavení).
+- `npm run build` (sestavení webu i funkce `api`).
 
-Závislosti instaluj jen skriptem `./scripts/install-deps.sh`, ne příkazem `npm install` (důvod je v `docs/02-lokalni-beh.md`). Po změně kódu serveru nebo migrací aplikaci zastav a spusť znovu; migrace se provádějí jen při startu.
+Závislosti instaluj jen skriptem `./scripts/install-deps.sh`, ne příkazem `npm install` (důvod je v `docs/02-lokalni-beh.md`). Každá nová tabulka musí mít v migraci zapnuté RLS bez politik (hlídá to test v `src/lib/server/handler.test.ts`). Kód v `src/lib/server` nesmí importovat moduly Node (kromě `db.ts` a `local-dev.ts`, které do cloudové funkce nejdou).
 
 ## Vzhled a ovládání (požadavek Thomase, 20. 11. 2026)
 

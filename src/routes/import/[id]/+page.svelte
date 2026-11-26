@@ -2,7 +2,9 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import { call, download } from '$lib/api';
+	import { call } from '$lib/api';
+	import { buildWorkbook, saveBlob } from '$lib/excel/write';
+	import type { SheetSpec } from '$lib/excel/write';
 	import { formatDateTime, formatNumber, plural } from '$lib/format';
 	import { IMPORT_FIELDS, IMPORT_FIELD_LABELS } from '$lib/import/rows';
 	import Button from '$lib/components/Button.svelte';
@@ -186,8 +188,27 @@
 	async function downloadReport() {
 		downloading = true;
 		try {
-			const name = await download('imports.report', { id }, `import-${id}-report-chyb.xlsx`);
-			toast.success(`Report uložen: ${name}`);
+			const report = await call<{
+				filename: string;
+				summary: [string, string | number][];
+				sheets: { name: string; kind: string; columns: { header: string; width: number }[] }[];
+			}>('imports.reportStart', { id });
+			const sheets: SheetSpec[] = [
+				{ name: 'Souhrn', columns: [{ header: '', width: 44 }, { header: '', width: 28 }], rows: report.summary, labelColumn: true }
+			];
+			for (const sheet of report.sheets) {
+				const rows: unknown[][] = [];
+				let after = 0;
+				for (;;) {
+					const part = await call<{ rows: unknown[][]; last: number; done: boolean }>('imports.reportRows', { id, kind: sheet.kind, after });
+					rows.push(...part.rows);
+					after = part.last;
+					if (part.done) break;
+				}
+				sheets.push({ name: sheet.name, columns: sheet.columns, rows });
+			}
+			saveBlob(await buildWorkbook(sheets), report.filename);
+			toast.success(`Report uložen: ${report.filename}`);
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Report se nepodařilo stáhnout.');
 		} finally {

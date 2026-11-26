@@ -1,0 +1,26 @@
+# Supabase on the free plan pauses a project after 7 days without activity. One small request a
+# day keeps it awake. The request carries no data and gets none (every table is closed).
+name: Údržba
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probuzeni:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dotaz na databázi
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          status=$(curl -sS -o /dev/null -w '%{http_code}' "https://$PROJECT_REF.supabase.co/rest/v1/users?select=id&limit=1" \
+            -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY")
+          echo "Odpověď: $status"
+          # 401 / 403 / 404 are expected (the table is closed); a 5xx or no answer means the project is down or paused.
+          case "$status" in 2*|401|403|404) exit 0 ;; *) echo "::error::Projekt Supabase neodpovídá ($status). Může být pozastavený."; exit 1 ;; esac

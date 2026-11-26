@@ -1,53 +1,34 @@
 // Request context handed to every API method and to the core domain functions.
 // Plain-Node importable (relative imports only), so scripts and tests can build one too.
-import type { Queryable } from './db.ts';
-
-export interface Session {
-	id: number;
-	createdAt: Date;
-	expiresAt: Date;
-}
+import type { Queryable } from './db-types.ts';
 
 export interface Actor {
-	/** Always null locally (single password, no users table). */
+	/** users.id of the logged-in user; null for the system (scheduler, scripts, tests). */
 	id: string | null;
 	name: string;
-}
-
-/** Cookie access for auth methods; matches the part of SvelteKit's Cookies that is used. */
-export interface CookieJar {
-	get(name: string): string | undefined;
-	set(name: string, value: string, opts: Record<string, unknown> & { path: string }): void;
-	delete(name: string, opts: Record<string, unknown> & { path: string }): void;
 }
 
 export interface Ctx {
 	/** Database handle, or the transaction handle inside inTransaction(). */
 	db: Queryable;
-	/** Logged-in session; null only for auth.* methods called before login. */
-	session: Session | null;
 	/** Current time. Always use this instead of new Date() so tests can fix the clock. */
 	now: () => Date;
 	actor: Actor;
+	/** The logged-in user of an HTTP request; absent in scripts and tests. */
+	user?: { id: string; email: string };
 	ip: string | null;
 	userAgent: string | null;
-	/** Present for HTTP requests; absent in scripts and tests. */
-	cookies?: CookieJar;
-	/** True when the request came over https (decides the Secure cookie flag). */
-	secure?: boolean;
 }
 
 export type Method = (ctx: Ctx, args: any) => Promise<unknown> | unknown;
 export type MethodMap = Record<string, Method>;
 
-export const LOCAL_ACTOR: Actor = { id: null, name: 'Správce' };
 export const SYSTEM_ACTOR: Actor = { id: null, name: 'Systém' };
 
 /** Context for scripts, background work and tests. */
 export function systemCtx(db: Queryable, overrides: Partial<Ctx> = {}): Ctx {
 	return {
 		db,
-		session: null,
 		now: () => new Date(),
 		actor: SYSTEM_ACTOR,
 		ip: null,
