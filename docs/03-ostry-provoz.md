@@ -1,6 +1,6 @@
 # Ostrý provoz (cloud)
 
-Jak je ostrá verze postavená, co je potřeba jednou nastavit a jak se nasazuje. Stav k 26. 11. 2026: kód je hotový a ověřený místně, **na skutečném Supabase a Cloudflare zatím neběžel** (viz Neověřeno na konci).
+Jak je ostrá verze postavená, co je potřeba jednou nastavit a jak se nasazuje. Stav k 26. 11. 2026: běží na `https://a4m-lead-management.pages.dev`. Na ostrém webu je ověřené přihlášení s 2FA, import včetně sloupce „Stav z robota“ a zápis do databáze.
 
 ## Jak to drží pohromadě
 
@@ -67,7 +67,24 @@ Supabase → Authentication → Users → uživatel → odebrat MFA faktor. Při
 - Rychlost na 90 tisících řádcích: místně prošel import 20 tisíc smyšlených řádků (nahrání, kontrola, zápis) bez potíží; limit 2 s procesoru na požadavek u funkce se projeví až v cloudu.
 - Skutečná struktura kmenového Excelu. Import je postavený podle smyšleného souboru.
 
+## Zálohy
+
+`Zálohy` (`.github/workflows/zalohy.yml`): každou noc výpis struktury a dat schématu `public`, hned na místě zašifrovaný nástrojem age veřejným klíčem, uložený do Cloudflare R2 (jurisdikce EU) jako `zaloha-RRRR-MM-DDTHHMMZ.tar.gz.age`. Zálohy starší než 30 dní se mažou. Soukromý klíč má jen Thomas; bez něj zálohu nepřečte nikdo, ani GitHub a Cloudflare. Když běh selže, GitHub pošle e-mail.
+
+Co záloha neobsahuje: účty a hesla (Supabase Auth). Po obnově se dva uživatelé založí znovu a nastaví si 2FA.
+
+Nastavení (jednou, Thomas):
+
+1. Klíč. V Terminálu na Macu: `ssh-keygen -t ed25519 -N "" -C a4m-zaloha -f ~/Documents/a4m-zaloha-klic`. Vzniknou dva soubory: `a4m-zaloha-klic` (soukromý, uložit do správce hesel a na druhé místo mimo počítač, nikam neposílat) a `a4m-zaloha-klic.pub` (veřejný).
+2. Cloudflare → R2 → Create bucket, název např. `a4m-lead-management-zalohy`, jurisdikce European Union (EU). R2 chce při zapnutí platební kartu, do 10 GB je zdarma.
+3. Cloudflare → R2 → Manage API tokens → Create Account API token, oprávnění Object Read & Write, jen pro tento bucket. Zobrazí Access Key ID a Secret Access Key.
+4. GitHub Secrets: `BACKUP_PUBLIC_KEY` (celý obsah souboru `.pub`, jeden řádek začínající `ssh-ed25519`), `R2_BUCKET` (název bucketu), `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+
+Obnova (zkouška jednou za čtvrt roku): stáhnout soubor z R2, `age -d -i a4m-zaloha-klic zaloha-….tar.gz.age | tar -xz`, do prázdné databáze nahrát `schema.sql` a pak `data.sql`. NEOVĚŘENO: zkouška obnovy zatím neproběhla; dokud neproběhne, není jisté, že se ze zálohy dá databáze postavit.
+
+NEOVĚŘENO do prvního běhu: přepínače `supabase db dump` v aktuální verzi nástroje a adresa úložiště.
+
 ## Co chybí
 
-- Noční šifrované zálohy do R2 (schváleno 19. 11. 2026, nepostaveno). Do té doby jsou ostrá data bez zálohy.
+- Zkouška obnovy ze zálohy.
 - Plánovač (pg_cron) a fronta úloh: přijdou s kroky, které je potřebují.

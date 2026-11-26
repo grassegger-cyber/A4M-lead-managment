@@ -1,0 +1,91 @@
+# Nightly encrypted backup of the database to Cloudflare R2 (EU), kept 30 days.
+# The dump is encrypted on the runner with a public key; the private key exists only with Thomas,
+# so neither GitHub nor Cloudflare can read a backup. Nothing from the dump may reach the log:
+# this repository is public and so are its workflow logs.
+name: Zálohy
+
+on:
+  schedule:
+    - cron: '41 1 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: zalohy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  zaloha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      BACKUP_PUBLIC_KEY: ${{ secrets.BACKUP_PUBLIC_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      # A bucket created with the jurisdiction "European Union" is reached through the .eu. address.
+      R2_ENDPOINT: ${{ vars.R2_ENDPOINT || format('https://{0}.eu.r2.cloudflarestorage.com', secrets.CLOUDFLARE_ACCOUNT_ID) }}
+      KEEP_DAYS: ${{ vars.BACKUP_KEEP_DAYS || '30' }}
+    steps:
+      - name: Kontrola nastavení
+        run: |
+          missing=0
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD PROJECT_REF BACKUP_PUBLIC_KEY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_BUCKET; do
+            if [ -z "${!name}" ]; then echo "::error::Chybí tajemství pro zálohy: $name (viz docs/03-ostry-provoz.md)"; missing=1; fi
+          done
+          exit $missing
+
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Šifrovací nástroj
+        run: sudo apt-get install -y -qq age > /dev/null
+
+      - run: supabase link --yes --project-ref "$PROJECT_REF"
+
+      - name: Výpis databáze, hned zašifrovaný
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$RUNNER_TEMP/zaloha"
+          mkdir -p "$work"
+          stamp=$(date -u +%Y-%m-%dT%H%MZ)
+          # Standard output is thrown away on purpose: if the tool ever printed the dump instead of
+          # writing the file, it must not end up in the public log.
+          supabase db dump --remote="$PROJECT_REF" --yes -f "$work/schema.sql" > /dev/null
+          supabase db dump --remote="$PROJECT_REF" --yes --data-only --use-copy -f "$work/data.sql" > /dev/null
+          test -s "$work/schema.sql" || { echo "::error::Výpis struktury je prázdný."; exit 1; }
+          test -s "$work/data.sql" || { echo "::error::Výpis dat je prázdný."; exit 1; }
+          grep -q '^COPY ' "$work/data.sql" || { echo "::error::Výpis dat neobsahuje žádnou tabulku."; exit 1; }
+          printf '%s\n' "$BACKUP_PUBLIC_KEY" > "$work/recipient.txt"
+          tar -C "$work" -cf - schema.sql data.sql | gzip -9 | age -R "$work/recipient.txt" -o "$work/zaloha-$stamp.tar.gz.age"
+          rm -f "$work/schema.sql" "$work/data.sql"
+          echo "FILE=$work/zaloha-$stamp.tar.gz.age" >> "$GITHUB_ENV"
+          echo "Velikost zašifrované zálohy: $(stat -c %s "$work/zaloha-$stamp.tar.gz.age") bajtů"
+
+      - name: Odeslání do úložiště
+        run: |
+          set -euo pipefail
+          aws s3 cp "$FILE" "s3://$R2_BUCKET/$(basename "$FILE")" --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          rm -f "$FILE"
+          echo "Záloha je uložená."
+
+      - name: Smazání záloh starších než ${{ env.KEEP_DAYS }} dní
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d "$KEEP_DAYS days ago" +%Y-%m-%d)
+          aws s3 ls "s3://$R2_BUCKET/" --endpoint-url "$R2_ENDPOINT" | awk '{print $4}' | grep -E '^zaloha-[0-9]{4}-[0-9]{2}-[0-9]{2}T' | while read -r name; do
+            day=${name#zaloha-}; day=${day%%T*}
+            if [[ "$day" < "$cutoff" ]]; then
+              aws s3 rm "s3://$R2_BUCKET/$name" --endpoint-url "$R2_ENDPOINT" --only-show-errors
+              echo "Smazána stará záloha z $day"
+            fi
+          done
+          echo "Záloh v úložišti: $(aws s3 ls "s3://$R2_BUCKET/" --endpoint-url "$R2_ENDPOINT" | grep -c 'zaloha-' || true)"
