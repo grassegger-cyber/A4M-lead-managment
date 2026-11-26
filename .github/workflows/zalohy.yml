@@ -28,6 +28,10 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
+      # R2 does not take the checksum headers newer versions of the AWS tool add on their own.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       # A bucket created with the jurisdiction "European Union" is reached through the .eu. address.
       R2_ENDPOINT: ${{ vars.R2_ENDPOINT || format('https://{0}.eu.r2.cloudflarestorage.com', secrets.CLOUDFLARE_ACCOUNT_ID) }}
@@ -69,6 +73,19 @@ jobs:
           rm -f "$work/schema.sql" "$work/data.sql"
           echo "FILE=$work/zaloha-$stamp.tar.gz.age" >> "$GITHUB_ENV"
           echo "Velikost zašifrované zálohy: $(stat -c %s "$work/zaloha-$stamp.tar.gz.age") bajtů"
+
+      - name: Kontrola úložiště
+        run: |
+          # Says which part of the storage settings is wrong, without touching any data.
+          if aws s3api head-bucket --bucket "$R2_BUCKET" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
+            echo "Úložiště je dostupné na adrese pro EU."
+          elif aws s3api head-bucket --bucket "$R2_BUCKET" --endpoint-url "https://$ACCOUNT_ID.r2.cloudflarestorage.com" > /dev/null 2>&1; then
+            echo "::error::Bucket existuje, ale není založený s jurisdikcí European Union (EU). Založte ho znovu s jurisdikcí EU."
+            exit 1
+          else
+            echo "::error::Úložiště není dostupné: nesedí název bucketu (R2_BUCKET), přístupové klíče (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY), nebo token nemá oprávnění k tomuto bucketu."
+            exit 1
+          fi
 
       - name: Odeslání do úložiště
         run: |

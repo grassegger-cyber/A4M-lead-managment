@@ -20,6 +20,7 @@
 	} from '$lib/states';
 	import type { Channel, CompanyState, HistorySource, HolderType, Operator, SubjectType } from '$lib/states';
 	import { formatDate, formatDateTime, formatNumber, formatPhone } from '$lib/format';
+	import Age from '$lib/components/Age.svelte';
 	import { reasonLabel } from '$lib/reason-labels';
 	import Button from '$lib/components/Button.svelte';
 	import Dialog from '$lib/components/Dialog.svelte';
@@ -399,7 +400,7 @@
 {#snippet ownership(c: Company)}
 	<h3>Vlastnictví</h3>
 	<dl class="facts">
-		<div><dt>Stav</dt><dd><StateDot state={c.state} /></dd></div>
+		<div><dt>Stav</dt><dd><StateDot state={c.state} /><Age label="Stav ověřen" date={c.state_verified_at} /></dd></div>
 		<div><dt>Stav ověřen</dt><dd class="num" class:none={!c.state_verified_at}>{c.state_verified_at ? formatDate(c.state_verified_at) : 'neověřeno'}</dd></div>
 		<div>
 			<dt>Držitel</dt>
@@ -483,7 +484,7 @@
 			<dd>
 				{c.ico_valid === null ? 'Neověřeno' : c.ico_valid ? 'Platné' : 'Neplatné'}{#if c.ico_verified_at}<span class="text-muted"
 						>&nbsp;· ověřeno <span class="num">{formatDate(c.ico_verified_at)}</span></span
-					>{/if}
+					>{/if}<Age label="IČO ověřeno v ARES" date={c.ico_verified_at} />
 			</dd>
 		</div>
 		<div><dt>Kraj</dt><dd class:none={!c.region_name}>{c.region_name ?? '—'}</dd></div>
@@ -525,7 +526,7 @@
 					<dl class="facts phone">
 						<div class="wide lead">
 							<dt class="visually-hidden">Číslo</dt>
-							<dd><span class="num">{formatPhone(phone.phone)}</span>{#if phone.is_primary}<span class="tag">Hlavní</span>{/if}</dd>
+							<dd><span class="num">{formatPhone(phone.phone)}</span>{#if phone.is_primary}<span class="tag">Hlavní</span>{/if}{#if phone.operator_verified_at}<Age label="Telefon ověřen (operátor)" date={phone.operator_verified_at} />{:else}<Age label="Telefon přidán" date={phone.created_at} />{/if}</dd>
 						</div>
 						<div><dt>Operátor</dt><dd>{phone.operator ? OPERATOR_LABELS[phone.operator] : 'Neověřeno'}</dd></div>
 						<div>
