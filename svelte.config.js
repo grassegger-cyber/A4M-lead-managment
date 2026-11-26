@@ -19,7 +19,8 @@ const config = {
 				'style-src': ['self', 'unsafe-inline'],
 				'img-src': ['self', 'data:', 'blob:'],
 				'font-src': ['self'],
-				'connect-src': ['self', 'https://*.supabase.co'],
+				// Only the application's own Supabase project (known at build time).
+				'connect-src': ['self', process.env.VITE_SUPABASE_URL || 'https://*.supabase.co'],
 				'object-src': ['none'],
 				'base-uri': ['self'],
 				'form-action': ['self']

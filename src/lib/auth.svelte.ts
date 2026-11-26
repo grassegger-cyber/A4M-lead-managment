@@ -12,6 +12,8 @@ export type AuthStatus =
 	| 'needsEnroll'
 	/** Password accepted, waiting for the code from the authenticator. */
 	| 'needsCode'
+	/** Arrived by the password recovery link from the e-mail (and passed 2FA when the account has it): choose a new password. */
+	| 'recovery'
 	| 'ready';
 
 export const MIN_PASSWORD_LENGTH = 12;
@@ -24,7 +26,7 @@ async function supabase(): Promise<SupabaseClient> {
 	if (!client) {
 		const { createClient } = await import('@supabase/supabase-js');
 		client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-			auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'a4m-lm-auth' }
+			auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'a4m-lm-auth' }
 		});
 	}
 	return client;
@@ -50,6 +52,10 @@ function fail(error: Parameters<typeof translate>[0], fallback: string): never {
 class Auth {
 	status = $state<AuthStatus>('loading');
 	email = $state<string | null>(null);
+	/** Set when the recovery link could not be used (expired or already used). */
+	linkError = $state<string | null>(null);
+	/** True from the arrival by a recovery link until the new password is saved. */
+	private recovering = false;
 	private started: Promise<void> | null = null;
 
 	/** Reads the stored session once per page load. */
@@ -67,17 +73,32 @@ class Auth {
 			this.status = 'ready';
 			return;
 		}
+		// The recovery link from the e-mail returns here with its result in the address (after #).
+		// Read it before the library consumes it.
+		if (typeof window !== 'undefined' && window.location.hash.length > 1) {
+			const params = new URLSearchParams(window.location.hash.slice(1));
+			if (params.get('type') === 'recovery') this.recovering = true;
+			if (params.get('error') || params.get('error_code')) {
+				this.linkError = 'Odkaz pro obnovu hesla už neplatí (vypršel nebo byl použit). Nechte si poslat nový.';
+				history.replaceState(null, '', window.location.pathname);
+			}
+		}
 		const sb = await supabase();
 		const { data } = await sb.auth.getSession();
 		if (!data.session) {
+			this.recovering = false;
 			this.email = null;
 			this.status = 'signedOut';
 			return;
 		}
 		this.email = data.session.user.email ?? null;
 		const { data: level } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-		if (level?.currentLevel === 'aal2') this.status = 'ready';
-		else if (level?.nextLevel === 'aal2') this.status = 'needsCode';
+		const needsCode = level?.currentLevel !== 'aal2' && level?.nextLevel === 'aal2';
+		// An account with an authenticator must give its code before it may change the password,
+		// so access to the mailbox alone is never enough.
+		if (needsCode) this.status = 'needsCode';
+		else if (this.recovering) this.status = 'recovery';
+		else if (level?.currentLevel === 'aal2') this.status = 'ready';
 		else this.status = 'needsEnroll';
 	}
 
@@ -136,6 +157,24 @@ class Auth {
 		await this.refresh();
 	}
 
+	/** Sends the e-mail with the recovery link. Says nothing about whether the account exists. */
+	async sendRecovery(email: string): Promise<void> {
+		const sb = await supabase();
+		const { error } = await sb.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: window.location.origin });
+		if (error && (error.status === 429 || error.code === 'over_email_send_rate_limit' || error.code === 'over_request_rate_limit')) {
+			throw new AuthError('E-mail teď odeslat nejde, limit je několik zpráv za hodinu. Zkuste to později.');
+		}
+		if (error && !/not found|not allowed|signup/i.test(error.message ?? '')) fail(error, 'E-mail se nepodařilo odeslat.');
+	}
+
+	/** Last step of the recovery: saves the new password and continues like a normal login. */
+	async finishRecovery(next: string): Promise<void> {
+		const { error } = await (await supabase()).auth.updateUser({ password: next });
+		if (error) fail(error, 'Heslo se nepodařilo změnit.');
+		this.recovering = false;
+		await this.refresh();
+	}
+
 	async changePassword(next: string): Promise<void> {
 		if (LOCAL_MODE) throw new AuthError('V místním režimu se heslo nepoužívá.');
 		const { error } = await (await supabase()).auth.updateUser({ password: next });
@@ -145,6 +184,7 @@ class Auth {
 	async signOut(): Promise<void> {
 		if (!LOCAL_MODE && CONFIGURED) await (await supabase()).auth.signOut();
 		this.email = null;
+		this.recovering = false;
 		this.status = LOCAL_MODE ? 'ready' : 'signedOut';
 	}
 }

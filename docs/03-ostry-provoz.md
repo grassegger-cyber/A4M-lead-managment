@@ -49,6 +49,10 @@ npm run dev          # http://127.0.0.1:5180, bez přihlášení, databáze v pa
 - Trvalá místní data: `npm run seed -- --count 3000` a pak `DEV_DATA_DIR=./data.nosync/pglite npm run dev`.
 - Testy proti skutečnému Postgresu (stejný motor jako Supabase): `TEST_PG_URL=postgres://… npm test`.
 
+## Zapomenuté heslo
+
+Na přihlašovací stránce odkaz „Zapomněl jsem heslo“ pošle na e-mail odkaz pro nastavení nového hesla (rozhodnutí Thomase 26. 11. 2026, původní návrh počítal jen s ruční obnovou). Účet, který už má ověřovací aplikaci, musí před změnou hesla zadat její kód, takže samotný přístup do e-mailu nestačí. Supabase na tarifu zdarma posílá jen několik e-mailů za hodinu. Stejný odkaz jde poslat i ze Supabase (Authentication → Users → Send password recovery).
+
 ## Ztráta telefonu s ověřovací aplikací
 
 Supabase → Authentication → Users → uživatel → odebrat MFA faktor. Při dalším přihlášení si uživatel nastaví nový.
