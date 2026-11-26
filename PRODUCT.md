@@ -18,7 +18,7 @@ Aplikace je pravda o vlastnictví IČO v Siebelu (systém Vodafonu): kde které 
 
 ## Positioning
 
-Raynet zůstává pravdou o práci s klientem (obchodní případy, aktivity, důvod prohry). Tahle aplikace je pravda o vlastnictví a poolu. Z Raynetu čte a zapisuje do něj jen čtyři vlastní pole firmy (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví), vždy po náhledu a potvrzení.
+Raynet zůstává pravdou o práci s klientem (leady a jejich fáze, obchodní případy, aktivity, důvod prohry). Tahle aplikace je pravda o vlastnictví a poolu. Z Raynetu čte. Zapisuje do něj jen dvě věci: čtyři vlastní pole firmy (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví), vždy po náhledu a potvrzení, a nové leady dávky přidělené OZ a operátorkám, po náhledu a jednom potvrzení dávky (rozhodl Thomas 20. 11. 2026). Nic jiného v Raynetu nemění.
 
 ## Operating Context
 
@@ -30,9 +30,11 @@ Raynet zůstává pravdou o práci s klientem (obchodní případy, aktivity, d�
 ## Capabilities and Constraints
 
 - Hotovo (krok 2, místní varianta): master databáze, import Excelu s mapováním sloupců, historie stavů, stavový automat, nastavení, audit, export. Další moduly (předfiltr, dávky a robot, synchronizace Raynetu, semafor, důvody prohry, Siebel, přidělování, dashboard) se staví po krocích podle návrhu.
+- Nové záložky (rozhodl Thomas 20. 11. 2026, zatím nepostavené): Rybníky (Callcentrum / Obchodníci: stavy leadů z Raynetu, trychtýř Dovoláno → Zájem → Převedeno na klienta, filtr podle dávky a měsíce) a Exekutiva (případy, o kterých rozhoduje jen Thomas, koše Držet / Plovák / Odvlastnit).
+- Stavy z Raynetu se čtou jednou denně ráno, obrazovka ukazuje čas posledního čtení, nikdy „v reálném čase“. Z leadů se neukládají jména ani telefony, místo nich je odkaz „Otevřít v Raynetu“.
 - Celé UI česky se správnou diakritikou, datum ve tvaru DD. MM. RRRR, mezera mezi tisíci.
 - Všechna obchodní pravidla (prahy, lhůty, limity, mapování) jsou v nastavení editovatelném v UI, nic napevno v kódu.
-- Hromadné zápisy do Raynetu a placená volání (CheckMobi) jen po náhledu a potvrzení.
+- Hromadné zápisy do Raynetu (čtyři pole firmy, založení leadů dávky jedním potvrzením na dávku) a placená volání (CheckMobi) jen po náhledu a potvrzení.
 - Repozitář je veřejný: jen smyšlená data.
 
 ## Brand Commitments

@@ -299,7 +299,7 @@ Small outlined labels, 22 px high, 13 px/600, ink hairline at 30 %. The strong v
 - **Error / Disabled:** error is an ink border doubled to 2 px with bold ink text below; disabled is a 4 % ink wash with muted text.
 
 ### Navigation
-- **Sidebar:** a sticky glass panel (radius 24) inset 12 px from the window, holding the logo tile, a 13 px subtitle, the labelled items and the logout. Items are 44 px capsules, 15 px/500 with an icon; hover lays a 50 % white wash; the current item is a brighter capsule (white 88 %, current shadow, 600).
+- **Sidebar:** a sticky glass panel (radius 24) inset 12 px from the window, holding the gold A4M logo (unchanged file, no tile or background behind it), a 13 px subtitle, the labelled items and the logout. Items are 44 px capsules, 15 px/500 with an icon; hover lays a 50 % white wash; the current item is a brighter capsule (white 88 %, current shadow, 600).
 - **Tabs:** page sections on the backdrop: a glass track (radius 28) of 44 px capsules; the current one gets the same bright capsule.
 - **Segmented control:** a choice inside a plate: a grey track (6 % ink) with a solid white current segment.
 

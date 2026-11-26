@@ -26,7 +26,7 @@
 <main class="auth">
 	<form class="glass card" onsubmit={submit}>
 		<div class="brand">
-			<!-- The logo is drawn for dark grounds: it sits unchanged on an ink tile. The line beside it names the app. -->
+			<!-- The gold A4M logo, unchanged and without a background (Thomas, 20. 11. 2026). The line beside it names the app. -->
 			<span class="logo-tile"><img src="/a4m-logo.png" alt="" width="118" height="28" /></span>
 			<p>A4M · Lead management</p>
 		</div>
@@ -67,13 +67,6 @@
 		display: flex;
 		align-items: center;
 		height: var(--control-h);
-		padding: 0 14px;
-		border-radius: 12px;
-		background: var(--ink);
-		box-shadow:
-			inset 0 1px 0 rgb(255 255 255 / 0.12),
-			0 1px 2px rgb(11 27 51 / 0.18),
-			0 6px 14px -8px rgb(11 27 51 / 0.4);
 	}
 	.logo-tile img {
 		display: block;

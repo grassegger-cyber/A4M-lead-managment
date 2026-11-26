@@ -135,18 +135,11 @@
 	.brand:hover {
 		background: var(--nav-hover-fill);
 	}
-	/* The logo is yellow line art drawn for dark grounds: it sits unchanged on a small ink tile. */
+	/* The gold A4M logo, unchanged and without a background (Thomas, 20. 11. 2026). */
 	.logo-tile {
 		display: flex;
 		align-items: center;
 		height: var(--control-h);
-		padding: 0 14px;
-		border-radius: 12px;
-		background: var(--ink);
-		box-shadow:
-			inset 0 1px 0 rgb(255 255 255 / 0.12),
-			0 1px 2px rgb(11 27 51 / 0.18),
-			0 6px 14px -8px rgb(11 27 51 / 0.4);
 	}
 	.logo-tile img {
 		display: block;

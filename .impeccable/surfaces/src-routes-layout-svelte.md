@@ -35,5 +35,5 @@ Development-only. Never copy any of this into source, comments, markup or anythi
 
 ## Unresolved
 
-- The A4M logo file in `static/` is drawn for dark grounds; how it sits on light glass is decided in the build.
+- The A4M logo file in `static/` is drawn for dark grounds. Decided by the owner on 20. 11. 2026: the gold logo sits unchanged on the light glass, with no tile or background behind it.
 - Semafor colours (step 6) are a proposed brand exception, to be confirmed by Thomas.

@@ -4,7 +4,7 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 
 ## Kde co je
 
-- `docs/00-zadani.md` — zadání. Je závazné, při rozporu má přednost.
+- `docs/00-zadani.md` — zadání. Je závazné, při rozporu má přednost. Na jeho konci jsou Změny zadání (rozhodnutí Thomase), ty mají přednost před původním textem.
 - `docs/01-navrh-reseni.md` — schválený návrh architektury, datového modelu, integrací a pořadí stavby. Před prací na kroku si přečti jeho část a oddíly 8 (otevřená rozhodnutí) a 9 (podklady).
 - `docs/02-lokalni-beh.md` — jak spustit místní variantu, kde leží data a známá omezení.
 
@@ -16,7 +16,10 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Názvy v kódu a komentáře anglicky. Celé UI česky se správnou diakritikou, datum ve tvaru DD. MM. RRRR.
 - Hodnoty stavů IČO jsou přesně podle zadání (`v_poolu`, `ve_filtru`, …).
 - Žádné obchodní pravidlo napevno v kódu. Prahy, lhůty, limity, mapování statusů a vzory souborů patří do tabulek nastavení editovatelných v UI (seznam klíčů je v návrhu, oddíl 4.4).
-- Do Raynetu se zapisují jen čtyři vlastní pole firmy (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví), vždy po náhledu a potvrzení. Nic jiného v Raynetu neměň, štítky nepoužívej.
+- Do Raynetu se zapisují jen dvě věci (Změny zadání 20. 11. 2026):
+  - čtyři vlastní pole firmy (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví), vždy po náhledu a potvrzení;
+  - nové leady dávky, jen s poli IČO, název, telefon, kategorie FOP / PO, operátor (teritorium), zdroj kontaktu, vlastník a téma, po náhledu a jednom potvrzení dávky Thomasem.
+- Nic jiného v Raynetu neměň (jiná pole firem, obchodní případy, aktivity, existující leady), štítky nepoužívej.
 - Placené volání (CheckMobi) a hromadný zápis nikdy nespouštěj bez potvrzení Thomase.
 - Tipařský portál (`../Tipařský portál`) je jen zdroj ke čtení. Nic v něm neměň.
 - Co není ověřeno, označ jako neověřené. Nevydávej předpoklad za fakt.
@@ -40,6 +43,7 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Rozhodnuto 19. 11. 2026: Supabase na tarifu zdarma, zálohy vlastní a šifrované.
 - Zálohy schváleny 19. 11. 2026: noční, šifrované před odesláním (klíč drží jen Thomas), Cloudflare R2 v EU, držení 30 dní.
 - Repozitář je veřejný (rozhodnuto 19. 11. 2026). Vše, co se commitne, uvidí kdokoli: jen smyšlená data, žádné reálné vzory souborů, klíče ani zálohy.
+- Rozhodnuto 20. 11. 2026 (Změny zadání, návrh oddíly 3.4 a 5.1): záložky Rybníky (Callcentrum / Obchodníci, stavy leadů z Raynetu) a Exekutiva (koše Držet / Plovák / Odvlastnit), z leadů se ukládá jen IČO, fáze, vlastník, zdroj kontaktu a data (stav leadu a ID navíc jako návrh ke schválení), čtení z Raynetu jednou denně (návrh 6:00), aplikace zakládá leady dávky v Raynetu po jednom potvrzení dávky (zařazení do kroku 9 je návrh).
 - Otevřená rozhodnutí: pracovní složka mimo iCloud.
 
 ## Kontroly

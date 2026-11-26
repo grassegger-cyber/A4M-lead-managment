@@ -30,9 +30,11 @@ Hrubá kapacita: přítok ~3 000–4 500 nových IČO měsíčně, na superuseru
 
 ## Hlavní princip
 
-Raynet je pravda o práci s klientem: OP, fáze, aktivity, důvod prohry. Aplikace je pravda o vlastnictví a poolu: kde IČO je, odkdy, dokdy, v jaké kohortě, kdy se k němu vrátit, karanténa. Aplikace z Raynetu čte. Zapisuje do něj jen několik vlastních polí (viz Integrace).
+Raynet je pravda o práci s klientem: OP, fáze, aktivity, důvod prohry. Aplikace je pravda o vlastnictví a poolu: kde IČO je, odkdy, dokdy, v jaké kohortě, kdy se k němu vrátit, karanténa. Aplikace z Raynetu čte. Zapisuje do něj jen několik vlastních polí (viz Integrace). (změněno 20. 11. 2026, viz Změny zadání)
 
 ## Moduly první verze
+
+(doplněno 20. 11. 2026: záložky Rybníky a Exekutiva, viz Změny zadání)
 
 ### 1. Master databáze IČO
 - Import Excelu (~90 tisíc řádků) s mapováním sloupců v UI. Deduplikace podle IČO. Report chyb (neplatné IČO, duplicity).
@@ -88,7 +90,7 @@ Checkpoint 2 (den 50), barva pro každé zbývající IČO:
   - závazek u konkurence končí za 3–6 měsíců.
 - Červená, vrátit nebo odvlastnit: nezájem; nezajímavý (1 číslo bez rodiny, služebák, bez signálu); nekontaktní po celé kadenci a nikdy nezvedl; neaktivní IČO; potenciál < 500 BMSL.
 
-Kdo rozhoduje oranžovou: OZ (v Raynetu přes pole, viz Integrace). Nad 2 000 BMSL, nebo když je login OZ nad 90 % limitu (225 FO / 225 PO), rozhoduje Thomas v aplikaci.
+Kdo rozhoduje oranžovou: OZ (v Raynetu přes pole, viz Integrace). Nad 2 000 BMSL, nebo když je login OZ nad 90 % limitu (225 FO / 225 PO), rozhoduje Thomas v aplikaci. (upřesněno 20. 11. 2026: v záložce Exekutiva třemi koši, viz Změny zadání)
 
 Pravidla:
 - Bez rozhodnutí do termínu se IČO pustí (výchozí akce = pustit).
@@ -122,13 +124,13 @@ Významy akcí:
 Datum konce závazku se čte z pole na kartě klienta v Raynetu. Když chybí a důvod ho potřebuje, aplikace založí úkol „doplnit konec závazku“ (pro Thomase, s jménem OZ).
 
 ### 7. Přidělování a rotace
-- Přidělení IČO obchodníkům pro cold call a rovnoměrné rozdělení leadů od operátorky.
+- Přidělení IČO obchodníkům pro cold call a rovnoměrné rozdělení leadů od operátorky. (změněno 20. 11. 2026: aplikace leady dávky sama zakládá v Raynetu a přiděluje OZ a operátorkám, viz Změny zadání)
 - Regionální pravidlo: OZ má v nastavení typ (jezdí na schůzky / volá online) a domovský kraj. Jezdící OZ dostává jen IČO ze svého kraje (kraj sídla z ARES). Online OZ dostává IČO odkudkoli, přednostně z krajů, kde nikdo nejezdí.
 - Rotace při návratu: IČO se při návratu přidělí jinému OZ než tomu, kdo ho měl naposledy. Musí splňovat regionální pravidlo a mít volný limit loginu, při shodě vyhrává nejméně vytížený. U důvodů nezájem a nekontaktní IČO nikdy nejde k OZ, který ho už měl. Když ho prošli všichni OZ v regionu, nebo dosáhlo maximálního počtu kol (nastavení, návrh 3), jde do karantény nebo k rozhodnutí Thomase.
 - Hlídání limitů: počet IČO na každém loginu (FO / PO) proti limitu 250 / 250. Na superuseru proti limitu 6 000 (nastavitelné, teď 10 000). Varování od 90 %.
 
 ### 8. Úkoly pro vedení (můj pracovní seznam)
-Aplikace sama generuje úkoly s termínem. Thomas je odškrtává a u každého vidí, co je hotové, co ne a co je po termínu. Typy úkolů:
+Aplikace sama generuje úkoly s termínem. Thomas je odškrtává a u každého vidí, co je hotové, co ne a co je po termínu. Typy úkolů: (doplněno 20. 11. 2026: Exekutiva a potvrzení založení leadů dávky, viz Změny zadání)
 - Nahrát dávku X do robota (očištění / prodloužení / vrácení statusů / odvlastnění). Tlačítko „Hotovo – nahráno dne …“ zapíše datum a posune časovou osu dávky.
 - Naimportovat výsledek robota pro dávku X (termín = nahrání + 7 dní).
 - Spustit kontrolu vlastníka / přeblokace v Siebelu (vstupní Excel ke stažení, import výsledku úkol uzavře).
@@ -141,14 +143,14 @@ Aplikace sama generuje úkoly s termínem. Thomas je odškrtává a u každého 
 Dashboard: dnešní a propadlé úkoly, dávky na časové ose, obsazenost superuseru a loginů, počty podle barev semaforu.
 
 ### 9. Měření (základ, bez složitých grafů)
-Pro každou kohortu a kanál: počet IČO → dovoláno → OP → nabídka → deal (z Raynetu). Konverze mezi kroky. Rozdělení podle typu FO/PO, kraje, oboru a roku založení. Účel: zjistit skutečnou konverzi IČO → nabídka a podle ní řídit velikost dávek.
+Pro každou kohortu a kanál: počet IČO → dovoláno → OP → nabídka → deal (z Raynetu). (k „dovoláno“ návrh 20. 11. 2026, viz Změny zadání) Konverze mezi kroky. Rozdělení podle typu FO/PO, kraje, oboru a roku založení. Účel: zjistit skutečnou konverzi IČO → nabídka a podle ní řídit velikost dávek.
 
 ## Integrace s Raynetem
 
-- Číst: firmy (podle IČO), OP včetně fáze, stavu a důvodu prohry (`losingCategory`), aktivity (typ, datum, výsledek, zda proběhla), nabídky (hodnota v BMSL), vlastníka OP (OZ), kategorie firmy, pole konec závazku a operátor (obchodní teritorium).
+- Číst: firmy (podle IČO), OP včetně fáze, stavu a důvodu prohry (`losingCategory`), aktivity (typ, datum, výsledek, zda proběhla), nabídky (hodnota v BMSL), vlastníka OP (OZ), kategorie firmy, pole konec závazku a operátor (obchodní teritorium). (doplněno 20. 11. 2026: leady, viz Změny zadání)
 - Synchronizovat jen IČO, která jsou „ve hře“ (superuser + loginy OZ + plovák s blížícím se návratem). Řádově 10–12 tisíc, ne celých 90 tisíc. Respektuj denní limit API Raynetu: inkrementální synchronizace podle data změny, fronta, retry s backoffem, log volání.
-- Zapisovat do vlastních polí firmy v Raynetu (založí je administrátor Raynetu, názvy a ID dodá Thomas): Kohorta, Semafor (barva), Rozhodnutí o vlastnictví (Držet / Pustit, toto pole vyplňuje OZ u oranžových), Konec vlastnictví. Nic jiného v Raynetu neměnit. Tagy (štítky) nepoužívat.
-- Před každou hromadnou zápisovou operací do Raynetu ukázat náhled změn a vyžádat potvrzení.
+- Zapisovat do vlastních polí firmy v Raynetu (založí je administrátor Raynetu, názvy a ID dodá Thomas): Kohorta, Semafor (barva), Rozhodnutí o vlastnictví (Držet / Pustit, toto pole vyplňuje OZ u oranžových), Konec vlastnictví. Nic jiného v Raynetu neměnit. Tagy (štítky) nepoužívat. (změněno 20. 11. 2026: navíc založení nových leadů dávky, viz Změny zadání)
+- Před každou hromadnou zápisovou operací do Raynetu ukázat náhled změn a vyžádat potvrzení. (upřesněno 20. 11. 2026: u založení leadů jedno potvrzení na dávku, viz Změny zadání)
 - Pozor na data, která se do analýz nepočítají: OP s loginem „David“ (bývalý OZ) z měření vyřadit.
 
 ## Bezpečnost a osobní údaje
@@ -167,16 +169,18 @@ IČO fyzických osob a telefony jsou osobní údaje. Proto:
 2. Master databáze + import Excelu + historie stavů.
 3. Předfiltr ARES + CheckMobi.
 4. Dávky + generátor souborů pro robota + import výsledků + úkoly kolem robota.
-5. Synchronizace z Raynetu (jen čtení).
-6. Semafor + checkpointy + fronta oranžových + zápis polí do Raynetu.
+5. Synchronizace z Raynetu (jen čtení). (doplněno 20. 11. 2026: leady a záložka Rybníky, viz Změny zadání)
+6. Semafor + checkpointy + fronta oranžových + zápis polí do Raynetu. (doplněno 20. 11. 2026: záložka Exekutiva, viz Změny zadání)
 7. Pravidla podle důvodu prohry + plovák + karanténa.
 8. Siebel: generátor vstupů, import výstupů, úkoly.
-9. Přidělování, rotace, region, limity.
+9. Přidělování, rotace, region, limity. (návrh 20. 11. 2026: založení leadů dávky v Raynetu, viz Změny zadání)
 10. Dashboard a měření.
 
 Po krocích 4 a 6 proběhne ostrý test na jedné reálné dávce souběžně s ručním postupem a výsledky se porovnají.
 
 ## Podklady, které dodá Thomas (bez nich daný krok nezačínej)
+
+(doplněno 20. 11. 2026: podklady k leadům, viz návrh oddíl 9)
 
 - Ukázka kmenového Excelu (struktura sloupců).
 - Vzory Excelu pro robota ve všech 4 režimech a seznam návratových statusů.
@@ -185,3 +189,33 @@ Po krocích 4 a 6 proběhne ostrý test na jedné reálné dávce souběžně s 
 - Názvy a ID vlastních polí v Raynetu (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví, Konec závazku).
 - API klíč CheckMobi a cena za dotaz.
 - Přístup k repozitáři / hostingu tipařského portálu.
+
+## Změny a upřesnění zadání (rozhodnutí Thomase)
+
+Tento oddíl doplňuje text výše, který zůstává beze změny. Kde se od něj liší, platí tento oddíl. Místa, kterých se změna týká, jsou výše označena odkazem „viz Změny zadání“. Podrobnosti a otevřené otázky jsou v návrhu `docs/01-navrh-reseni.md` (oddíly 3.4, 4.10, 5.1, 8.2 a 10).
+
+### 20. 11. 2026
+
+1. **Dvě nové záložky.**
+   - **Rybníky:** dva rybníky za jedním přepínačem. Callcentrum = IČO, která volají operátorky. Obchodníci = IČO přidělená každému OZ pro cold call, v Raynetu přidělená tomuto OZ. Oba jsou pohledy nad stejnou master databází IČO, „hlavně pro přehlednost“.
+   - **Exekutiva:** seznam konkrétních případů, o kterých rozhoduje jen Thomas, „zda je pustit nebo ne“.
+   - Návrhy vzhledu obou záložek jsou na návrhovém plátně (mimo repozitář).
+2. **Co záložky ukazují:** stavy z Raynetu, tedy IČO, která jsou v CRM jako lead. Kolik je dovoláno se zájmem, s nezájmem, nedovoláno 1x, 2x a kolik bylo převedeno na klienta. Čísla jde filtrovat podle dávky a měsíce.
+3. **Definice** (v nastavení editovatelném v UI, nic napevno v kódu):
+   - „Dovoláno“ = lead ve fázi Dovoláno - zájem, Dovoláno - nezájem, Dovoláno - VF, Dovoláno - IZOLACE / nesouhlasí s kontaktem nebo Převedený. Návrh: stejná definice i pro „dovoláno“ v měření (modul 9), potvrdí Thomas.
+   - „Zájem“ = Dovoláno - zájem a Převedený.
+   - „Převedeno na klienta“ = lead ve fázi Převedený (lead převedený na klienta), lead OZ i lead operátorky. Obvykle předtím prošel fází Dovoláno - zájem a často k němu vznikne obchodní případ.
+   - Leady ve fázi Zrušený se do rybníků nepočítají (výchozí návrh, Thomas nic nenamítl).
+   - Pokusy („nedovoláno 1x, 2x“) se berou z fáze leadu, nikdy z počtu aktivit.
+   - Kanál se pozná podle pole leadu „Zdroj kontaktu“: „LEAD OBCHODNIK“ = cold call OZ, „LEAD CC <jméno operátorky>“ = callcentrum.
+4. **Datum předání:** vlastní pole leadu „Datum předání“ je den, kdy operátorka předala lead obchodníkovi. Z něj se počítá rovnoměrné rozdělení leadů od operátorky (modul 7).
+5. **Rozhodnutí v Exekutivě** jsou tři koše: Držet (= převlastnit na login OZ), Plovák (není to špatný kontakt, vrátit se k němu k datu) a Odvlastnit (pustit na VBC pool, karanténa podle pravidel). Plovák a Odvlastnit odpovídají významům akcí v modulu 6 („Významy akcí“); Držet zde znamená jen převlastnit na login OZ.
+6. **Stavy z Raynetu se obnovují jednou denně** („to bude stačit klidně 1x denně“), návrh v 6:00.
+7. **Zápis do Raynetu se rozšiřuje** (výslovná volba Thomase „Ano, po potvrzení dávky“):
+   - Aplikace sama založí leady dávky v Raynetu a přidělí je OZ a operátorkám podle pravidel přidělování (modul 7). „Musí to fungovat automaticky“, ale každá dávka potřebuje jedno potvrzení Thomase po náhledu: kolik leadů, komu, kolik volání Raynetu a zbývající denní rozpočet.
+   - Na novém leadu smí aplikace vyplnit jen: IČO, název, telefon, kategorii FOP / PO, operátora (teritorium), zdroj kontaktu („LEAD OBCHODNIK“ / „LEAD CC <jméno operátorky>“), vlastníka (OZ nebo operátorka) a téma s dávkou a krajem. Štítky ne.
+   - U firem platí dál jen čtyři vlastní pole (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví) s náhledem a potvrzením. Nic jiného v Raynetu (jiná pole firem, obchodní případy, aktivity, existující leady) aplikace nemění.
+8. **Čtení leadů z Raynetu** (doplňuje seznam „Číst“ v Integraci): z leadů se ukládá jen IČO, fáze, vlastník, zdroj kontaktu a data (datum leadu, datum předání, datum převodu, pokud ho Raynet vrací). Jména, telefony a poznámky se neukládají, místo nich je odkaz „Otevřít v Raynetu“. Navíc (návrh, ke schválení): stav leadu a ID z Raynetu, kvůli kontrole otevřeného leadu a odkazu „Otevřít v Raynetu“.
+9. **Pořadí stavby:** Rybníky se stavy z Raynetu přijdou s krokem 5, kontrola rovnoměrného předávání s krokem 9. Exekutiva vznikne s krokem 6, další skupiny případů přibudou v krocích 7 a 9. Založení leadů dávky je navržené do kroku 9 (návrh, Thomas ho zatím nepotvrdil), protože potřebuje klienta Raynetu a zrcadlo leadů z kroku 5, import výsledku robota z kroku 4 a pravidla přidělování z kroku 9.
+10. Fakta o leadech přečtená 20. 11. 2026 se souhlasem Thomase z ostré instance Raynetu (jen nastavení a fáze leadů, nic se neuložilo ani nezměnilo) jsou v návrhu, oddíl 5.1.
+11. Důsledek bodu 7 (otevřené, otázka 8.2 č. 32): IČO, které má v Raynetu jen lead, nemá firmu, takže u něj nejde zapsat Kohortu, Semafor ani Konec vlastnictví a OZ nemá kam zapsat Rozhodnutí o vlastnictví. Rozhodne Thomas před krokem 6.
