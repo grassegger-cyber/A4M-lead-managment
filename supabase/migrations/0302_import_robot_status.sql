@@ -1,4 +1,4 @@
--- 0203 Import column "Stav z robota" (decision of Thomas, 26. 11. 2026) and the new state
+-- 0302 Import column "Stav z robota" (decision of Thomas, 26. 11. 2026) and the new state
 -- neni_v_siebelu: the IČO does not exist in Siebel at all and has to be created there by hand.
 
 alter table companies drop constraint companies_state_check;
