@@ -724,8 +724,6 @@ const DIFF_NOTES: Partial<Record<DiffField, string>> = {
 		'Týká se IČO, jejichž stav už byl dříve potvrzen. IČO, které má obchodníka, je zákazník apod., import nezmění nikdy (řádek „Robot: nepoužito“).',
 	owned_from: 'S datem vlastnictví se posune i konec vlastnictví a lhůta pro vrácení statusů.'
 };
-/** Without a choice (and as the pre-set choice on the screen): overwrite or keep. */
-const DIFF_DEFAULTS: Partial<Record<DiffField, boolean>> = { phone: false, operator: true, robot_status: true, owned_from: false };
 const OPERATOR_NAMES: Record<string, string> = { VF: 'Vodafone', TM: 'T-Mobile', O2: 'O2', jiny: 'Jiný' };
 
 interface DiffSpec {
@@ -1184,7 +1182,6 @@ export const methods: MethodMap = {
 	'imports.diff': async (ctx, args) => {
 		const id = importId(args);
 		await diffableImport(ctx, id);
-		const allowed = await getSetting<unknown>(ctx.db, 'import.update_existing_fields');
 		const specs = await loadDiffSpecs(ctx);
 		const select = DIFF_FIELDS.map(
 			(field) =>
@@ -1199,7 +1196,8 @@ export const methods: MethodMap = {
 				note: DIFF_NOTES[field] ?? null,
 				differs: row[`${field}_differs`] ?? 0,
 				fills: row[`${field}_fills`] ?? 0,
-				overwrite: field in DIFF_DEFAULTS ? DIFF_DEFAULTS[field] === true : Array.isArray(allowed) && allowed.includes(field)
+				// Pre-set choice on the screen: always overwrite; only the user takes a tick away (Thomas, 26. 11. 2026).
+				overwrite: true
 			}))
 		};
 	},

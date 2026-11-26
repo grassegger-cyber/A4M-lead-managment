@@ -750,7 +750,7 @@ describe('imports: the choice covers every column (state from the robot, main ph
 			[K]
 		);
 		let id = await staged({ robot_status: 'ANO', owned_from: '10. 11. 2026' });
-		expect(await field(id, 'owned_from')).toMatchObject({ differs: 1, overwrite: false });
+		expect(await field(id, 'owned_from')).toMatchObject({ differs: 1, overwrite: true });
 		await apply(id, []);
 		expect(await company()).toMatchObject({ owned_from: '2026-11-01', ownership_ends_on: '2026-12-01' });
 		id = await staged({ robot_status: 'ANO', owned_from: '10. 11. 2026' });
@@ -760,7 +760,7 @@ describe('imports: the choice covers every column (state from the robot, main ph
 
 	it('a new number is added; it becomes the main one only when chosen, and nothing is deleted', async () => {
 		let id = await staged({ phones: ['+420 000 530 002'] });
-		expect(await field(id, 'phone')).toMatchObject({ differs: 1, fills: 0, overwrite: false });
+		expect(await field(id, 'phone')).toMatchObject({ differs: 1, fills: 0, overwrite: true });
 		await apply(id, []);
 		const phones = () => db.query<Record<string, any>>(`select phone, is_primary from company_phones where ico = $1 order by phone`, [K]);
 		expect(await phones()).toEqual([
