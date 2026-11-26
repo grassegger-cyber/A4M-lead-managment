@@ -344,6 +344,12 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 		may('founded_on'),
 		may('ca_number')
 	];
+	const overwriteSet = new Set<DiffField>(UPDATABLE_FIELDS.filter((field) => may(field)));
+	if (Array.isArray(chosen) && chosen.includes('phone')) overwriteSet.add('phone');
+	if (Array.isArray(chosen) && chosen.includes('owned_from')) overwriteSet.add('owned_from');
+	if (!Array.isArray(chosen) || chosen.includes('operator')) overwriteSet.add('operator');
+	await logChanges(ctx, imp, range, [...UPDATABLE_FIELDS, 'phone', 'owned_from'], overwriteSet);
+
 	// Region and district are written as a pair that belongs together (district code → region code
 	// in $13): a district from the row is not taken when it contradicts a region that may not be
 	// overwritten; a region without a district clears a stored district that lies elsewhere, or,
@@ -421,16 +427,24 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 	// 3. Phones: added to what the company already has, the same number is never stored twice.
 	const mergeDuplicates = (await getSetting(ctx.db, 'import.merge_duplicate_phones')) === true;
 	const phoneStatuses = mergeDuplicates ? ['new', 'update', 'duplicate'] : ['new', 'update'];
-	const phones = await ctx.db.run(
-		`insert into company_phones (ico, phone, source)
-		 select r.ico, ph.phone, 'import'
-		 from import_rows r
-		 cross join lateral jsonb_array_elements_text(r.parsed->'phones') with ordinality as ph(phone, ord)
-		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status = any($4::text[])
-		 order by r.row_no, ph.ord
-		 on conflict (ico, phone) do nothing`,
-		[...range, phoneStatuses]
-	);
+	const phones = (await ctx.db.one<{ n: number }>(
+		`with ins as (
+			insert into company_phones (ico, phone, source)
+			select r.ico, ph.phone, 'import'
+			from import_rows r
+			cross join lateral jsonb_array_elements_text(r.parsed->'phones') with ordinality as ph(phone, ord)
+			where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status = any($4::text[])
+			order by r.row_no, ph.ord
+			on conflict (ico, phone) do nothing
+			returning ico, phone
+		 ), log as (
+			insert into company_changes (ico, at, field, old_value, new_value, source, source_ref, subject, actor_name)
+			select ico, $5, 'phone_added', null, phone, 'import', $6, phone, $7 from ins
+			returning 1
+		 )
+		 select (select count(*) from ins)::int as n, (select count(*) from log)::int as logged`,
+		[...range, phoneStatuses, ctx.now(), String(imp.id), ctx.actor.name]
+	))!.n;
 	// A company without a primary number gets its first one marked.
 	if (phones > 0) {
 		await ctx.db.run(
@@ -445,7 +459,8 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 	}
 
 	// 4. Operator from the file: belongs to the first phone number of the row; the day of the
-	//    import is the day the operator was verified.
+	//    import is the day the operator was verified. Logged first (the numbers exist by now).
+	await logChanges(ctx, imp, range, ['operator'], overwriteSet, true);
 	await ctx.db.run(
 		`update company_phones p set operator = r.parsed->>'operator', operator_verified_at = $4
 		 from import_rows r
@@ -789,6 +804,43 @@ const DIFF_FROM = `from import_rows r join companies c on c.ico = r.ico
 	left join company_phones fp on fp.ico = r.ico and fp.phone = r.parsed->'phones'->>0
 	left join lateral (select p.phone from company_phones p where p.ico = r.ico order by p.is_primary desc, p.id limit 1) pp on true
 	where r.import_id = $1 and r.status = 'update'`;
+
+/**
+ * Writes to company_changes what this chunk is about to change on companies that already exist:
+ * a missing value that gets filled in and, for the fields chosen to be overwritten, a value that
+ * differs. Must run before the change itself. The state has its own history and is not logged here.
+ */
+async function logChanges(
+	ctx: Ctx,
+	imp: ImportRow,
+	range: (number | string)[],
+	fields: readonly DiffField[],
+	overwrite: Set<DiffField>,
+	alsoNewCompanies = false
+): Promise<void> {
+	const specs = await loadDiffSpecs(ctx);
+	const from = (alsoNewCompanies ? DIFF_FROM.replace(`r.status = 'update'`, `r.status in ('new', 'update')`) : DIFF_FROM) +
+		' and r.row_no > $2 and r.row_no <= $3';
+	const parts = fields
+		// A new main number is logged only as a change of the main number; an added number has its own row.
+		.map((field) => {
+			const d = specs[field];
+			const conditions = [...(field === 'phone' ? [] : [fillsSql(d)]), ...(overwrite.has(field) ? [differsSql(d)] : [])];
+			if (!conditions.length) return null;
+			return `select r.ico, '${field}' as field, coalesce(${d.curText ?? d.cur}, ${d.cur}) as old_value,
+				coalesce(${d.incText ?? d.inc}, ${d.inc}) as new_value,
+				${field === 'operator' ? `r.parsed->'phones'->>0` : 'null'} as subject
+				${from} and (${conditions.join(' or ')})`;
+		})
+		.filter(Boolean);
+	if (!parts.length) return;
+	await ctx.db.run(
+		`insert into company_changes (ico, at, field, old_value, new_value, source, source_ref, subject, actor_name)
+		 select d.ico, $4, d.field, d.old_value, d.new_value, 'import', $5, d.subject, $6
+		 from (${parts.join(' union all ')}) d`,
+		[...range, ctx.now(), String(imp.id), ctx.actor.name]
+	);
+}
 
 async function loadDiffSpecs(ctx: Ctx): Promise<Record<DiffField, DiffSpec>> {
 	const states = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');

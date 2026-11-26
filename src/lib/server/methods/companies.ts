@@ -487,7 +487,7 @@ export const methods: MethodMap = {
 		);
 		if (!company) throw new AppError('company_not_found', `IČO ${ico} v databázi není.`, 404);
 		const phones = await ctx.db.query(
-			`select id, phone, is_primary, operator, operator_verified_at, number_type, source
+			`select id, phone, is_primary, operator, operator_verified_at, number_type, source, created_at
 			 from company_phones where ico = $1 order by is_primary desc, id`,
 			[ico]
 		);
@@ -518,7 +518,21 @@ export const methods: MethodMap = {
 			 order by at desc, id desc limit 50`,
 			[ico]
 		);
-		return { company, phones, history, assignments, transitions, overrides };
+		// Changes of the data (not of the state): newest first. The table may not exist yet on a
+		// database where the migration has not been applied; the detail must still open.
+		let changes: unknown[] = [];
+		try {
+			changes = await ctx.db.transaction((tx) =>
+				tx.query(
+					`select id::int as id, at, field, old_value, new_value, source, source_ref, subject, actor_name
+					 from company_changes where ico = $1 order by at desc, id desc limit 200`,
+					[ico]
+				)
+			);
+		} catch (e) {
+			if ((e as { code?: string })?.code !== '42P01') throw e;
+		}
+		return { company, phones, history, assignments, transitions, overrides, changes };
 	},
 
 	/**

@@ -79,7 +79,48 @@
 		operator_verified_at: string | null;
 		number_type: string | null;
 		source: string | null;
+		created_at?: string | null;
 	}
+	interface ChangeRow {
+		id: number;
+		at: string;
+		field: string;
+		old_value: string | null;
+		new_value: string | null;
+		source: string;
+		source_ref: string | null;
+		subject: string | null;
+		actor_name: string | null;
+	}
+	const CHANGE_FIELD_LABELS: Record<string, string> = {
+		name: 'Název',
+		subject_type: 'Typ subjektu',
+		legal_form_code: 'Právní forma',
+		region: 'Kraj',
+		district: 'Okres',
+		nace: 'Obor (CZ-NACE)',
+		founded_on: 'Datum vzniku',
+		ca_number: 'Číslo CA',
+		phone: 'Hlavní telefon',
+		phone_added: 'Přidán telefon',
+		operator: 'Operátor',
+		owned_from: 'Vlastnictví od'
+	};
+	const OPERATOR_NAMES: Record<string, string> = { VF: 'Vodafone', TM: 'T-Mobile', O2: 'O2', jiny: 'Jiný' };
+	function changeValue(change: ChangeRow, value: string | null): string {
+		if (value === null || value === '') return '—';
+		if (change.field === 'operator') return OPERATOR_NAMES[value] ?? value;
+		if (change.field === 'phone' || change.field === 'phone_added') return formatPhone(value);
+		if (change.field === 'owned_from' || change.field === 'founded_on') return formatDate(value);
+		return value;
+	}
+	function changeSource(change: ChangeRow): string {
+		const who = change.actor_name ? ` · ${change.actor_name}` : '';
+		if (change.source === 'import') return `Import č. ${change.source_ref ?? '?'}${who}`;
+		if (change.source === 'checkmobi') return `Ověření operátora${who}`;
+		return `${change.source}${who}`;
+	}
+
 	interface HistoryRow {
 		id: number;
 		at: string;
@@ -125,6 +166,7 @@
 		company: Company;
 		phones: Phone[];
 		history: HistoryRow[];
+		changes?: ChangeRow[];
 		assignments: Assignment[];
 		transitions: TransitionOption[];
 		overrides: Override[];
@@ -487,8 +529,12 @@
 						</div>
 						<div><dt>Operátor</dt><dd>{phone.operator ? OPERATOR_LABELS[phone.operator] : 'Neověřeno'}</dd></div>
 						<div>
-							<dt>Ověřeno</dt>
-							<dd class="num" class:none={!phone.operator_verified_at}>{formatDate(phone.operator_verified_at)}</dd>
+							<dt>Operátor ověřen</dt>
+							<dd class="num" class:none={!phone.operator_verified_at}>{phone.operator_verified_at ? formatDate(phone.operator_verified_at) : 'neověřeno'}</dd>
+						</div>
+						<div>
+							<dt>Číslo přidáno</dt>
+							<dd class="num" class:none={!phone.created_at}>{formatDate(phone.created_at)}</dd>
 						</div>
 						<div>
 							<dt>Zdroj</dt>
@@ -560,6 +606,30 @@
 {/snippet}
 
 <!-- Sales reps as a list for the narrow inspector, as a table on the page -->
+{#snippet changesList(changes: ChangeRow[])}
+	<h3>Historie údajů <span class="count">{changes.length}</span></h3>
+	{#if changes.length}
+		<ul class="changes">
+			{#each changes as change (change.id)}
+				<li>
+					<span class="when num">{formatDate(change.at)}</span>
+					<span class="what">
+						<strong>{CHANGE_FIELD_LABELS[change.field] ?? change.field}</strong>{#if change.field === 'operator' && change.subject}<span class="text-muted">&nbsp;{formatPhone(change.subject)}</span>{/if}:
+						{#if change.field === 'phone_added'}
+							{changeValue(change, change.new_value)}
+						{:else}
+							{changeValue(change, change.old_value)} → {changeValue(change, change.new_value)}
+						{/if}
+						<span class="text-muted src">{changeSource(change)}</span>
+					</span>
+				</li>
+			{/each}
+		</ul>
+	{:else}
+		<p class="text-muted">Zatím žádná změna údajů. Zapisuje se od 26. 11. 2026.</p>
+	{/if}
+{/snippet}
+
 {#snippet repsList(assignments: Assignment[])}
 	<h3>Obchodníci u tohoto IČO <span class="count">{assignments.length}</span></h3>
 	{#if assignments.length}
@@ -697,6 +767,7 @@
 				<section aria-label="Návrat a karanténa">{@render returns(company, detail.overrides)}</section>
 				<section aria-label="Telefony">{@render phonesList(detail.phones)}</section>
 				<section aria-label="Historie stavů">{@render historyList(detail.history)}</section>
+				<section aria-label="Historie údajů">{@render changesList(detail.changes ?? [])}</section>
 				<section aria-label="Obchodníci u tohoto IČO">{@render repsList(detail.assignments)}</section>
 				<section aria-label="Subjekt">{@render subject(company)}</section>
 			</div>
@@ -711,6 +782,7 @@
 				</div>
 				<div class="col">
 					<section class="plate panel-pad" aria-label="Historie stavů">{@render historyList(detail.history)}</section>
+					<section class="plate panel-pad" aria-label="Historie údajů">{@render changesList(detail.changes ?? [])}</section>
 				</div>
 			</div>
 			<section class="plate" aria-label="Obchodníci u tohoto IČO">{@render repsTable(detail.assignments)}</section>
@@ -1227,5 +1299,25 @@
 		.page .head {
 			padding-left: var(--space-3);
 		}
+	}
+	.changes {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 10px;
+	}
+	.changes li {
+		display: grid;
+		grid-template-columns: 92px 1fr;
+		gap: 12px;
+		align-items: baseline;
+	}
+	.changes .when {
+		color: var(--text-2);
+	}
+	.changes .src {
+		display: block;
+		font-size: var(--text-small);
 	}
 </style>

@@ -776,3 +776,45 @@ describe('imports: the choice covers every column (state from the robot, main ph
 		]);
 	});
 });
+
+describe('imports: history of changes of the data', () => {
+	const H = icoFromPrefix(9954001);
+
+	async function run(data: Record<string, unknown>, overwrite?: string[]) {
+		const started = await call('imports.start', {
+			filename: 'historie.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], name: ['Název'], phone: ['Telefon'], operator: ['Operátor'] },
+			declaredRows: 1,
+			emptyRows: 0
+		});
+		await call('imports.appendRows', { id: started.id, rows: [{ rowNo: 2, data: { ico: H, ...data } }] });
+		let state = await call('imports.validate', { id: started.id });
+		while (!state.done) state = await call('imports.validate', { id: started.id });
+		let applied = await call('imports.apply', { id: started.id, confirm: true, ...(overwrite ? { overwrite } : {}) });
+		while (!applied.done) applied = await call('imports.apply', { id: started.id });
+		return started.id as number;
+	}
+	const changes = () =>
+		db.query<Record<string, any>>(`select field, old_value, new_value, subject, source from company_changes where ico = $1 order by id`, [H]);
+
+	it('records an added number, the operator over time and an overwritten value, but not what stayed the same', async () => {
+		await run({ name: 'Testovací H', phones: ['+420 000 540 001'], operator: 'Vodafone' });
+		expect(await changes()).toEqual([
+			{ field: 'phone_added', old_value: null, new_value: '+420000540001', subject: '+420000540001', source: 'import' },
+			{ field: 'operator', old_value: null, new_value: 'VF', subject: '+420000540001', source: 'import' }
+		]);
+		// The same again: nothing new in the history.
+		await run({ name: 'Testovací H', phones: ['+420 000 540 001'], operator: 'Vodafone' });
+		expect(await changes()).toHaveLength(2);
+		// Another operator and name, both overwritten.
+		await run({ name: 'Přejmenovaná H', phones: ['+420 000 540 001'], operator: 'O2' }, ['name', 'operator']);
+		expect((await changes()).slice(2)).toEqual([
+			{ field: 'name', old_value: 'Testovací H', new_value: 'Přejmenovaná H', subject: null, source: 'import' },
+			{ field: 'operator', old_value: 'VF', new_value: 'O2', subject: '+420000540001', source: 'import' }
+		]);
+		// A difference that is kept is not a change.
+		await run({ name: 'Třetí název H', phones: ['+420 000 540 001'], operator: 'T-Mobile' }, []);
+		expect(await changes()).toHaveLength(4);
+	});
+});
