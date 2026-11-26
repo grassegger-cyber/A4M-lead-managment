@@ -449,7 +449,7 @@
 			<p class="text-muted lead">
 				Ke každému sloupci vyberte pole, do kterého patří. Návrh vychází z názvů záhlaví a z minulého importu; mapování se zapamatuje.
 				Telefon může mít víc sloupců, ostatní pole jeden.
-			</p>
+			 Tady jen říkáte, co který sloupec obsahuje. Jestli se má údaj, který se liší od databáze, přepsat, vyberete až po kontrole.</p>
 		</div>
 		<div class="scroll-x">
 			<table class="map">

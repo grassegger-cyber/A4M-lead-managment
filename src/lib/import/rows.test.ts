@@ -199,3 +199,9 @@ describe('guessMapping: a column skipped last time', () => {
 		expect(guessMapping(['IČO', 'Stav z robota', 'Poznámka'], aliases, remembered)).toEqual(['ico', 'robot_status', '']);
 	});
 });
+
+describe('guessMapping: a header named like a field of the application', () => {
+	it('is recognised without an alias and although it was skipped last time', () => {
+		expect(guessMapping(['IČO', 'Operátor', 'Stav z robota'], { ico: ['ico'] }, { operator: '-' })).toEqual(['ico', 'operator', 'robot_status']);
+	});
+});

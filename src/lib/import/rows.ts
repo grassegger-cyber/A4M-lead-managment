@@ -522,6 +522,12 @@ export function guessMapping(
 			if (key && !aliasToField.has(key)) aliasToField.set(key, field);
 		}
 	}
+	// A header that reads exactly like the name of a field in the application is that field, also
+	// when the list of aliases in the settings does not know it.
+	for (const field of IMPORT_FIELDS) {
+		const key = normText(IMPORT_FIELD_LABELS[field]);
+		if (key && !aliasToField.has(key)) aliasToField.set(key, field);
+	}
 	const used = new Set<ImportField>();
 	const result: (ImportField | '')[] = headers.map(() => '');
 	const take = (index: number, field: ImportField) => {

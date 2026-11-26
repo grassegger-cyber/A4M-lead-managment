@@ -449,8 +449,11 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 		`update company_phones p set operator = r.parsed->>'operator', operator_verified_at = $4
 		 from import_rows r
 		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
-			and r.parsed ? 'operator' and p.ico = r.ico and p.phone = r.parsed->'phones'->>0`,
-		[...range, ctx.now()]
+			and r.parsed ? 'operator' and p.ico = r.ico and p.phone = r.parsed->'phones'->>0
+			-- The same operator is confirmed (new date), a missing one is filled in; a different
+			-- one is overwritten only when chosen for this import.
+			and (p.operator is null or p.operator = r.parsed->>'operator' or $5)`,
+		[...range, ctx.now(), Array.isArray(chosen) ? chosen.includes('operator') : true]
 	);
 
 	await applyRobotStatus(ctx, imp, range);
@@ -663,7 +666,14 @@ async function robotCounts(ctx: Ctx, imp: ImportRow) {
 
 // ---------- differences against the database ----------
 /** For every field the import may overwrite: stored value and value in the file, as SQL over c and r. */
-const DIFF_SQL: Record<(typeof UPDATABLE_FIELDS)[number], { cur: string; inc: string; curText?: string; incText?: string }> = {
+const DIFF_FIELDS = [...UPDATABLE_FIELDS, 'operator'] as const;
+type DiffField = (typeof DIFF_FIELDS)[number];
+const DIFF_LABELS: Record<DiffField, string> = { ...IMPORT_FIELD_LABELS, operator: 'Operátor telefonu' };
+const OPERATOR_NAMES: Record<string, string> = { VF: 'Vodafone', TM: 'T-Mobile', O2: 'O2', jiny: 'Jiný' };
+
+const DIFF_SQL: Record<DiffField, { cur: string; inc: string; curText?: string; incText?: string }> = {
+	// fp = the stored row of the first phone number of the import row (see DIFF_FROM).
+	operator: { cur: 'fp.operator', inc: `r.parsed->>'operator'` },
 	name: { cur: `nullif(c.name, '')`, inc: `r.parsed->>'name'` },
 	subject_type: { cur: 'c.subject_type', inc: `r.parsed->>'subject_type'` },
 	legal_form_code: { cur: 'c.legal_form_code', inc: `r.parsed->>'legal_form_code'` },
@@ -677,7 +687,9 @@ const DIFF_SQL: Record<(typeof UPDATABLE_FIELDS)[number], { cur: string; inc: st
 	ca_number: { cur: `nullif(c.ca_number, '')`, inc: `r.parsed->>'ca_number'` }
 };
 
-const DIFF_FROM = `from import_rows r join companies c on c.ico = r.ico where r.import_id = $1 and r.status = 'update'`;
+const DIFF_FROM = `from import_rows r join companies c on c.ico = r.ico
+	left join company_phones fp on fp.ico = r.ico and fp.phone = r.parsed->'phones'->>0
+	where r.import_id = $1 and r.status = 'update'`;
 
 async function diffableImport(ctx: Ctx, id: number): Promise<ImportRow> {
 	const imp = await readImport(ctx, id);
@@ -893,7 +905,7 @@ export const methods: MethodMap = {
 				// Fields whose differing values this import may overwrite (absent = by the setting).
 				let overwrite: string[] | null = null;
 				if (args?.overwrite !== undefined && args?.overwrite !== null) {
-					if (!Array.isArray(args.overwrite) || args.overwrite.some((f: unknown) => !(UPDATABLE_FIELDS as readonly unknown[]).includes(f))) {
+					if (!Array.isArray(args.overwrite) || args.overwrite.some((f: unknown) => !(DIFF_FIELDS as readonly unknown[]).includes(f))) {
 						throw new AppError('overwrite_invalid', 'Neplatný výběr polí k přepsání.');
 					}
 					overwrite = [...new Set(args.overwrite as string[])];
@@ -1061,19 +1073,21 @@ export const methods: MethodMap = {
 		const id = importId(args);
 		await diffableImport(ctx, id);
 		const allowed = await getSetting<unknown>(ctx.db, 'import.update_existing_fields');
-		const select = UPDATABLE_FIELDS.map((field) => {
+		const select = DIFF_FIELDS.map((field) => {
 			const { cur, inc } = DIFF_SQL[field];
 			return `(count(*) filter (where ${inc} is not null and ${cur} is not null and ${inc} <> ${cur}))::int as "${field}_differs",
-				(count(*) filter (where ${inc} is not null and ${cur} is null))::int as "${field}_fills"`;
+				(count(*) filter (where ${inc} is not null and ${cur} is null${field === 'operator' ? ' and fp.id is not null' : ''}))::int as "${field}_fills"`;
 		}).join(', ');
 		const row = (await ctx.db.one<Record<string, number>>(`select ${select} ${DIFF_FROM}`, [id])) ?? {};
 		return {
-			fields: UPDATABLE_FIELDS.map((field) => ({
+			fields: DIFF_FIELDS.map((field) => ({
 				field,
-				label: IMPORT_FIELD_LABELS[field],
+				label: DIFF_LABELS[field],
 				differs: row[`${field}_differs`] ?? 0,
+				// An operator is "filled in" only where the number itself is already stored.
 				fills: row[`${field}_fills`] ?? 0,
-				overwrite: Array.isArray(allowed) && allowed.includes(field)
+				// A newer operator replaces the stored one unless decided otherwise.
+				overwrite: field === 'operator' ? true : Array.isArray(allowed) && allowed.includes(field)
 			}))
 		};
 	},
@@ -1086,18 +1100,18 @@ export const methods: MethodMap = {
 	'imports.diffRows': async (ctx, args) => {
 		const id = importId(args);
 		await diffableImport(ctx, id);
-		const fields = args?.field === undefined || args?.field === null ? [...UPDATABLE_FIELDS] : [args.field];
-		if (fields.some((f) => !(UPDATABLE_FIELDS as readonly unknown[]).includes(f))) throw new AppError('field_invalid', 'Neznámé pole.');
+		const fields = args?.field === undefined || args?.field === null ? [...DIFF_FIELDS] : [args.field];
+		if (fields.some((f) => !(DIFF_FIELDS as readonly unknown[]).includes(f))) throw new AppError('field_invalid', 'Neznámé pole.');
 		const after = Math.max(0, Math.floor(Number(args?.after)) || 0);
 		const limit = Math.min(Math.max(1, Math.floor(Number(args?.limit)) || 50), REPORT_PAGE);
-		const parts = (fields as (typeof UPDATABLE_FIELDS)[number][]).map((field) => {
+		const parts = (fields as DiffField[]).map((field) => {
 			const d = DIFF_SQL[field];
 			return `select r.row_no, r.ico, '${field}' as field, coalesce(${d.curText ?? d.cur}, ${d.cur}) as current,
 				coalesce(${d.incText ?? d.inc}, ${d.inc}) as incoming
 				${DIFF_FROM} and r.row_no > $2 and ${d.inc} is not null and ${d.cur} is not null and ${d.inc} <> ${d.cur}`;
 		});
 		// Whole rows only: the page ends at a row number, so no row is split between two pages.
-		const rows = await ctx.db.query<{ row_no: number; ico: string; field: (typeof UPDATABLE_FIELDS)[number]; current: string; incoming: string }>(
+		const rows = await ctx.db.query<{ row_no: number; ico: string; field: DiffField; current: string; incoming: string }>(
 			`with d as (${parts.join(' union all ')}),
 				page as (select distinct row_no from d order by row_no limit $3)
 			 select d.* from d join page using (row_no) order by d.row_no, d.field`,
@@ -1105,7 +1119,10 @@ export const methods: MethodMap = {
 		);
 		const rowCount = new Set(rows.map((r) => r.row_no)).size;
 		return {
-			items: rows.map((r) => ({ rowNo: r.row_no, ico: r.ico, field: r.field, label: IMPORT_FIELD_LABELS[r.field], current: r.current, incoming: r.incoming })),
+			items: rows.map((r) => {
+				const name = (value: string) => (r.field === 'operator' ? (OPERATOR_NAMES[value] ?? value) : value);
+				return { rowNo: r.row_no, ico: r.ico, field: r.field, label: DIFF_LABELS[r.field], current: name(r.current), incoming: name(r.incoming) };
+			}),
 			last: rows.length ? rows[rows.length - 1].row_no : after,
 			done: rowCount < limit
 		};

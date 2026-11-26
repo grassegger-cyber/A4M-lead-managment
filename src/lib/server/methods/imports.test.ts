@@ -648,3 +648,44 @@ describe('imports: operator from the file and the age of information', () => {
 		]);
 	});
 });
+
+describe('imports: an operator that differs from the stored one', () => {
+	const A = icoFromPrefix(9952001); // stored by the test above: first phone TM
+
+	async function staged(operator: string) {
+		const started = await call('imports.start', {
+			filename: 'operator2.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], phone: ['Telefon'], operator: ['Operátor'] },
+			declaredRows: 1,
+			emptyRows: 0
+		});
+		await call('imports.appendRows', { id: started.id, rows: [{ rowNo: 2, data: { ico: A, phones: ['+420 000 520 001'], operator } }] });
+		let state = await call('imports.validate', { id: started.id });
+		while (!state.done) state = await call('imports.validate', { id: started.id });
+		return started.id as number;
+	}
+	const stored = async () => (await db.one<{ operator: string }>(`select operator from company_phones where phone = '+420000520001'`))!.operator;
+
+	it('is not a difference when the file says the same', async () => {
+		const id = await staged('T-Mobile');
+		const op = (await call('imports.diff', { id })).fields.find((f: any) => f.field === 'operator');
+		expect(op).toMatchObject({ differs: 0, fills: 0 });
+		await call('imports.cancel', { id });
+	});
+
+	it('is listed as a difference and kept or overwritten as chosen', async () => {
+		let id = await staged('Vodafone');
+		const op = (await call('imports.diff', { id })).fields.find((f: any) => f.field === 'operator');
+		expect(op).toMatchObject({ label: 'Operátor telefonu', differs: 1, overwrite: true });
+		expect((await call('imports.diffRows', { id, field: 'operator' })).items[0]).toMatchObject({ current: 'T-Mobile', incoming: 'Vodafone' });
+		let applied = await call('imports.apply', { id, confirm: true, overwrite: [] });
+		while (!applied.done) applied = await call('imports.apply', { id });
+		expect(await stored()).toBe('TM');
+
+		id = await staged('Vodafone');
+		applied = await call('imports.apply', { id, confirm: true, overwrite: ['operator'] });
+		while (!applied.done) applied = await call('imports.apply', { id });
+		expect(await stored()).toBe('VF');
+	});
+});
