@@ -1,7 +1,5 @@
 // companies.* methods: IČO list with search and filters, detail, manual state change,
 // manual override of the return / quarantine dates and the Excel export.
-import { PassThrough } from 'node:stream';
-import ExcelJS from 'exceljs';
 import type { Ctx, MethodMap } from '../context.ts';
 import { inTransaction } from '../context.ts';
 import type { Queryable } from '../db.ts';
@@ -10,6 +8,7 @@ import { audit, transition } from '../companies-core.ts';
 import type { TransitionExtra } from '../companies-core.ts';
 import { clampPageSize, getSetting, getSettings } from '../settings-core.ts';
 import { fileResponse, XLSX_MIME } from '../files.ts';
+import { createXlsxWriter } from '../xlsx-writer.ts';
 import { parseIco } from '../../ico.ts';
 import {
 	CHANNELS,
@@ -712,15 +711,8 @@ export const methods: MethodMap = {
 				details: { filter: filterForAudit(filter), rows: total }
 			});
 
-			const stream = new PassThrough();
-			const chunks: Buffer[] = [];
-			stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-			const finished = new Promise<void>((resolve, reject) => {
-				stream.on('end', () => resolve());
-				stream.on('error', reject);
-			});
-			const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream, useStyles: true, useSharedStrings: false });
-			const sheet = workbook.addWorksheet('IČO', { views: [{ state: 'frozen', ySplit: 1 }] });
+			const xlsx = await createXlsxWriter();
+			const sheet = xlsx.workbook.addWorksheet('IČO', { views: [{ state: 'frozen', ySplit: 1 }] });
 			sheet.columns = EXPORT_COLUMNS.map((column) => ({
 				header: column.header,
 				key: column.key,
@@ -798,11 +790,10 @@ export const methods: MethodMap = {
 				if (rows.length < EXPORT_CHUNK) break;
 			}
 			sheet.commit();
-			await workbook.commit();
-			await finished;
+			const file = await xlsx.finish();
 			if (written !== total) throw new Error(`export row count mismatch: counted ${total}, wrote ${written}`);
 
-			const response = fileResponse(new Uint8Array(Buffer.concat(chunks)), `ico-export-${localIsoDate(tx.now())}.xlsx`, XLSX_MIME);
+			const response = fileResponse(file, `ico-export-${localIsoDate(tx.now())}.xlsx`, XLSX_MIME);
 			response.headers.set('x-row-count', String(total));
 			return response;
 		});

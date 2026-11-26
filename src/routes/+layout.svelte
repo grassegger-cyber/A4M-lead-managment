@@ -11,6 +11,7 @@
 	import Toast from '$lib/components/Toast.svelte';
 	import { toast } from '$lib/components/toasts.svelte';
 	import { call } from '$lib/api';
+	import { EditionStrip, isDemo } from '$lib/edition';
 
 	let { data, children }: { data: { authenticated: boolean }; children: Snippet } = $props();
 
@@ -23,7 +24,8 @@
 	];
 
 	const path = $derived(page.url.pathname);
-	const bare = $derived(!data.authenticated || path === '/prihlaseni' || path === '/nastaveni-hesla');
+	// The demo build has no server and no login: it is always signed in.
+	const bare = $derived(!(isDemo || data.authenticated) || path === '/prihlaseni' || path === '/nastaveni-hesla');
 	let loggingOut = $state(false);
 
 	function isActive(href: string): boolean {
@@ -45,6 +47,10 @@
 <svelte:head>
 	<title>Lead management A4M</title>
 </svelte:head>
+
+{#if EditionStrip}
+	<EditionStrip />
+{/if}
 
 {#if bare}
 	{@render children()}
@@ -68,10 +74,12 @@
 					{/each}
 				</ul>
 			</nav>
-			<button type="button" class="logout" onclick={logout} disabled={loggingOut}>
-				<LogOut size={18} />
-				<span>{loggingOut ? 'Odhlašuji…' : 'Odhlásit'}</span>
-			</button>
+			{#if !isDemo}
+				<button type="button" class="logout" onclick={logout} disabled={loggingOut}>
+					<LogOut size={18} />
+					<span>{loggingOut ? 'Odhlašuji…' : 'Odhlásit'}</span>
+				</button>
+			{/if}
 		</aside>
 		<main id="obsah">
 			{@render children()}

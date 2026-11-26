@@ -8,12 +8,14 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"test": "vitest run",
 		"build": "vite build",
+		"build:demo": "vite build --config vite.demo.config.ts",
 		"start": "HOST=127.0.0.1 PORT=5180 ORIGIN=http://127.0.0.1:5180 BODY_SIZE_LIMIT=50M node build.nosync/index.js",
 		"seed": "node scripts/seed.ts",
 		"sample-excel": "node scripts/sample-excel.ts"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.8",
+		"@sveltejs/adapter-static": "^3.0.11",
 		"@sveltejs/kit": "^2.70.4",
 		"svelte": "^5.58.0",
 		"svelte-check": "^4.7.8",
