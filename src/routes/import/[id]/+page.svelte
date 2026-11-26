@@ -50,6 +50,7 @@
 		differs: number;
 		fills: number;
 		overwrite: boolean;
+		note?: string | null;
 	}
 	interface DiffItem {
 		rowNo: number;
@@ -492,8 +493,8 @@
 					<div class="panel block">
 						<h2>Rozdíly proti databázi</h2>
 						<p class="text-muted lead">
-							U IČO, která už v databázi jsou. Chybějící údaj se doplní vždy. Kde se údaj v souboru liší od uloženého, rozhodněte, jestli ho
-							přepsat. Telefony se jen přidávají.
+							U IČO, která už v databázi jsou. Co je v souboru stejné jako v databázi, tu není. Chybějící údaj se doplní vždy. Kde se údaj v
+							souboru liší od uloženého, rozhodněte, jestli ho přepsat.
 						</p>
 						<table class="diff">
 							<thead>
@@ -502,7 +503,10 @@
 							<tbody>
 								{#each diffRows as d (d.field)}
 									<tr>
-										<th scope="row">{d.label}</th>
+										<th scope="row">
+											{d.label}
+											{#if d.note && d.differs > 0}<span class="note text-muted">{d.note}</span>{/if}
+										</th>
 										<td class="num">{formatNumber(d.differs)}</td>
 										<td class="num">{formatNumber(d.fills)}</td>
 										<td>
@@ -792,6 +796,13 @@
 	.diff .right {
 		text-align: right;
 		padding-right: var(--plate-pad-x);
+	}
+	.diff .note {
+		display: block;
+		max-width: 46ch;
+		font-size: var(--text-small);
+		font-weight: 400;
+		white-space: normal;
 	}
 	.choice {
 		display: inline-flex;

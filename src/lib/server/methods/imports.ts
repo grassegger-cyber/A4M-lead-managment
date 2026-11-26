@@ -21,6 +21,7 @@ import {
 	sanitizeRawRow,
 	validateRow
 } from '../../import/rows.ts';
+import { HOLDER_LABELS, isCompanyState, stateLabel } from '../../states.ts';
 import type { ImportField, ImportRules, RawRow, RowErrorCode, RowWarning } from '../../import/rows.ts';
 
 type ImportStatus = 'uploading' | 'uploaded' | 'validated' | 'applying' | 'applied' | 'cancelled';
@@ -456,7 +457,22 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 		[...range, ctx.now(), Array.isArray(chosen) ? chosen.includes('operator') : true]
 	);
 
-	await applyRobotStatus(ctx, imp, range);
+	// 5. The main phone number: a number from the file that the company did not have as its main one
+	//    becomes the main one only when chosen (numbers are never deleted).
+	if (Array.isArray(chosen) && chosen.includes('phone')) {
+		await ctx.db.run(
+			`with want as (
+				select r.ico, r.parsed->'phones'->>0 as phone from import_rows r
+				where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+					and r.parsed->'phones'->>0 is not null
+			 )
+			 update company_phones p set is_primary = (p.phone = want.phone)
+			 from want where p.ico = want.ico and p.is_primary is distinct from (p.phone = want.phone)`,
+			range
+		);
+	}
+
+	await applyRobotStatus(ctx, imp, range, !Array.isArray(chosen) || chosen.includes('robot_status'), Array.isArray(chosen) && chosen.includes('owned_from'));
 
 	return { inserted: insertedIcos.length, updated, unchanged: usable - insertedIcos.length - updated, phones };
 }
@@ -475,7 +491,15 @@ export function czechToday(d: Date): string {
  *  - missing_in_siebel: state neni_v_siebelu
  *  - other_owner: the state stays, the holder becomes jiny_partner
  */
-async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | string)[]): Promise<void> {
+async function applyRobotStatus(
+	ctx: Ctx,
+	imp: ImportRow,
+	range: (number | string)[],
+	/** A state that was confirmed before and differs from the file may be overwritten. */
+	overwriteState: boolean,
+	/** A stored start of ownership that differs from the file may be overwritten. */
+	overwriteOwnedFrom: boolean
+): Promise<void> {
 	const states = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');
 	const login = await getSetting<unknown>(ctx.db, 'import.robot_owner_login');
 	const days = await positiveSetting(ctx, 'ownership.superuser_hold_days');
@@ -495,6 +519,9 @@ async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | strin
 				case t.outcome when 'owned' then 'superuser' when 'missing_in_siebel' then 'neni_v_siebelu' else c.state end as to_state
 			from companies c join t on t.ico = c.ico
 			where c.state = any($5::text[])
+				-- A company still in the default state that nobody confirmed takes the state always;
+				-- a state confirmed before is overwritten only when chosen for this import.
+				and ($12 or (c.state = 'v_poolu' and c.state_verified_at is null))
 			for update of c
 		), ok as (
 			select l.* from l
@@ -524,7 +551,22 @@ async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | strin
 				else 'import_robot_other_owner' end,
 			$9, ok.cohort_id, 'import', $10, $11
 		from ok join u on u.ico = ok.ico`,
-		[...range, czechToday(ctx.now()), states, login.trim(), days, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name]
+		[...range, czechToday(ctx.now()), states, login.trim(), days, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name, overwriteState]
+	);
+	// Start of ownership given in the file for an IČO that is already ours: filled in when missing,
+	// replaced only when chosen. The end of ownership moves with it (plus the extension, if used).
+	const extension = await positiveSetting(ctx, 'ownership.superuser_extension_days');
+	await ctx.db.run(
+		`update companies c set owned_from = (r.parsed->>'owned_from')::date,
+			ownership_ends_on = (r.parsed->>'owned_from')::date + $4::int
+				+ case when c.ownership_extended_on is not null then $5::int else 0 end
+		 from import_rows r
+		 where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
+			and r.parsed->>'robot_outcome' = 'owned' and r.parsed->>'owned_from' is not null and c.ico = r.ico
+			and c.state = 'superuser' and c.holder_type = 'superuser'
+			and c.owned_from is distinct from (r.parsed->>'owned_from')::date
+			and (c.owned_from is null or $6)`,
+		[...range, days, extension, overwriteOwnedFrom]
 	);
 	// The state is confirmed as of now wherever the company is (now) in the state the robot reported,
 	// also when nothing had to change.
@@ -666,30 +708,100 @@ async function robotCounts(ctx: Ctx, imp: ImportRow) {
 
 // ---------- differences against the database ----------
 /** For every field the import may overwrite: stored value and value in the file, as SQL over c and r. */
-const DIFF_FIELDS = [...UPDATABLE_FIELDS, 'operator'] as const;
+const DIFF_FIELDS = [...UPDATABLE_FIELDS, 'phone', 'operator', 'robot_status', 'owned_from'] as const;
 type DiffField = (typeof DIFF_FIELDS)[number];
-const DIFF_LABELS: Record<DiffField, string> = { ...IMPORT_FIELD_LABELS, operator: 'Operátor telefonu' };
+const DIFF_LABELS: Record<DiffField, string> = {
+	...IMPORT_FIELD_LABELS,
+	phone: 'Hlavní telefon',
+	operator: 'Operátor telefonu',
+	robot_status: 'Stav a vlastnictví (z robota)',
+	owned_from: 'Vlastnictví od'
+};
+/** What "overwrite" and "keep" mean where it is not obvious. */
+const DIFF_NOTES: Partial<Record<DiffField, string>> = {
+	phone: 'Přepsat: číslo ze souboru bude hlavní. Nechat: jen se přidá k ostatním. Čísla se nikdy nemažou.',
+	robot_status:
+		'Týká se IČO, jejichž stav už byl dříve potvrzen. IČO, které má obchodníka, je zákazník apod., import nezmění nikdy (řádek „Robot: nepoužito“).',
+	owned_from: 'S datem vlastnictví se posune i konec vlastnictví a lhůta pro vrácení statusů.'
+};
+/** Without a choice (and as the pre-set choice on the screen): overwrite or keep. */
+const DIFF_DEFAULTS: Partial<Record<DiffField, boolean>> = { phone: false, operator: true, robot_status: true, owned_from: false };
 const OPERATOR_NAMES: Record<string, string> = { VF: 'Vodafone', TM: 'T-Mobile', O2: 'O2', jiny: 'Jiný' };
 
-const DIFF_SQL: Record<DiffField, { cur: string; inc: string; curText?: string; incText?: string }> = {
-	// fp = the stored row of the first phone number of the import row (see DIFF_FROM).
-	operator: { cur: 'fp.operator', inc: `r.parsed->>'operator'` },
-	name: { cur: `nullif(c.name, '')`, inc: `r.parsed->>'name'` },
-	subject_type: { cur: 'c.subject_type', inc: `r.parsed->>'subject_type'` },
-	legal_form_code: { cur: 'c.legal_form_code', inc: `r.parsed->>'legal_form_code'` },
-	region: { cur: 'c.region_code', inc: `r.parsed->>'region_code'`, curText: 'c.region_name', incText: `r.parsed->>'region_name'` },
-	district: { cur: 'c.district_code', inc: `r.parsed->>'district_code'`, curText: 'c.district_name', incText: `r.parsed->>'district_name'` },
-	nace: {
-		cur: `nullif(array_to_string(c.nace_codes, ', '), '')`,
-		inc: `(select string_agg(v, ', ') from jsonb_array_elements_text(r.parsed->'nace_codes') as v)`
-	},
-	founded_on: { cur: 'c.founded_on::text', inc: `r.parsed->>'founded_on'` },
-	ca_number: { cur: `nullif(c.ca_number, '')`, inc: `r.parsed->>'ca_number'` }
-};
+interface DiffSpec {
+	/** Stored value and value in the file, as SQL (aliases: c company, r import row, fp / pp phones). */
+	cur: string;
+	inc: string;
+	curText?: string;
+	incText?: string;
+	/** Extra condition for the field to apply at all. */
+	where?: string;
+	/** A differing value that is nevertheless only "filled in" (written always, without a choice). */
+	fillsWhen?: string;
+	/** Extra condition for counting a missing stored value as "filled in". */
+	fillsWhere?: string;
+}
+
+/** Target of the robot result as 'state/holder type', comparable with the stored pair. */
+const ROBOT_TARGET = `case r.parsed->>'robot_outcome'
+	when 'owned' then 'superuser/superuser'
+	when 'missing_in_siebel' then 'neni_v_siebelu/' || c.holder_type
+	when 'other_owner' then c.state || '/jiny_partner' end`;
+
+function diffSpecs(robotStates: string[]): Record<DiffField, DiffSpec> {
+	// Only known state names reach the SQL text.
+	const states = robotStates.filter((state) => isCompanyState(state)).map((state) => `'${state}'`);
+	return {
+		name: { cur: `nullif(c.name, '')`, inc: `r.parsed->>'name'` },
+		subject_type: { cur: 'c.subject_type', inc: `r.parsed->>'subject_type'` },
+		legal_form_code: { cur: 'c.legal_form_code', inc: `r.parsed->>'legal_form_code'` },
+		region: { cur: 'c.region_code', inc: `r.parsed->>'region_code'`, curText: 'c.region_name', incText: `r.parsed->>'region_name'` },
+		district: { cur: 'c.district_code', inc: `r.parsed->>'district_code'`, curText: 'c.district_name', incText: `r.parsed->>'district_name'` },
+		nace: {
+			cur: `nullif(array_to_string(c.nace_codes, ', '), '')`,
+			inc: `(select string_agg(v, ', ') from jsonb_array_elements_text(r.parsed->'nace_codes') as v)`
+		},
+		founded_on: { cur: 'c.founded_on::text', inc: `r.parsed->>'founded_on'` },
+		ca_number: { cur: `nullif(c.ca_number, '')`, inc: `r.parsed->>'ca_number'` },
+		// pp = the main number of the company, fp = the stored row of the first number of the import row.
+		phone: { cur: 'pp.phone', inc: `r.parsed->'phones'->>0` },
+		operator: { cur: 'fp.operator', inc: `r.parsed->>'operator'`, fillsWhere: 'fp.id is not null' },
+		robot_status: {
+			cur: `c.state || '/' || c.holder_type`,
+			inc: ROBOT_TARGET,
+			where: states.length ? `c.state in (${states.join(', ')})` : 'false',
+			fillsWhen: `c.state = 'v_poolu' and c.state_verified_at is null`
+		},
+		owned_from: {
+			cur: 'c.owned_from::text',
+			inc: `case when r.parsed->>'robot_outcome' = 'owned' then r.parsed->>'owned_from' end`,
+			where: `c.state = 'superuser' and c.holder_type = 'superuser'`
+		}
+	};
+}
+
+const differsSql = (d: DiffSpec) =>
+	`(${d.inc} is not null and ${d.where ?? 'true'} and ${d.cur} is not null and ${d.inc} <> ${d.cur}${d.fillsWhen ? ` and not (${d.fillsWhen})` : ''})`;
+const fillsSql = (d: DiffSpec) =>
+	`(${d.inc} is not null and ${d.where ?? 'true'} and ((${d.cur} is null and ${d.fillsWhere ?? 'true'})${
+		d.fillsWhen ? ` or (${d.cur} is not null and ${d.inc} <> ${d.cur} and ${d.fillsWhen})` : ''
+	}))`;
 
 const DIFF_FROM = `from import_rows r join companies c on c.ico = r.ico
 	left join company_phones fp on fp.ico = r.ico and fp.phone = r.parsed->'phones'->>0
+	left join lateral (select p.phone from company_phones p where p.ico = r.ico order by p.is_primary desc, p.id limit 1) pp on true
 	where r.import_id = $1 and r.status = 'update'`;
+
+async function loadDiffSpecs(ctx: Ctx): Promise<Record<DiffField, DiffSpec>> {
+	const states = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');
+	return diffSpecs(Array.isArray(states) ? states.map(String) : []);
+}
+
+/** 'state/holder type' → readable text. */
+function stateHolderText(value: string): string {
+	const [state, holder] = value.split('/');
+	return `${stateLabel(state)} · ${HOLDER_LABELS[holder as keyof typeof HOLDER_LABELS] ?? holder}`;
+}
 
 async function diffableImport(ctx: Ctx, id: number): Promise<ImportRow> {
 	const imp = await readImport(ctx, id);
@@ -1073,21 +1185,21 @@ export const methods: MethodMap = {
 		const id = importId(args);
 		await diffableImport(ctx, id);
 		const allowed = await getSetting<unknown>(ctx.db, 'import.update_existing_fields');
-		const select = DIFF_FIELDS.map((field) => {
-			const { cur, inc } = DIFF_SQL[field];
-			return `(count(*) filter (where ${inc} is not null and ${cur} is not null and ${inc} <> ${cur}))::int as "${field}_differs",
-				(count(*) filter (where ${inc} is not null and ${cur} is null${field === 'operator' ? ' and fp.id is not null' : ''}))::int as "${field}_fills"`;
-		}).join(', ');
+		const specs = await loadDiffSpecs(ctx);
+		const select = DIFF_FIELDS.map(
+			(field) =>
+				`(count(*) filter (where ${differsSql(specs[field])}))::int as "${field}_differs",
+				(count(*) filter (where ${fillsSql(specs[field])}))::int as "${field}_fills"`
+		).join(', ');
 		const row = (await ctx.db.one<Record<string, number>>(`select ${select} ${DIFF_FROM}`, [id])) ?? {};
 		return {
 			fields: DIFF_FIELDS.map((field) => ({
 				field,
 				label: DIFF_LABELS[field],
+				note: DIFF_NOTES[field] ?? null,
 				differs: row[`${field}_differs`] ?? 0,
-				// An operator is "filled in" only where the number itself is already stored.
 				fills: row[`${field}_fills`] ?? 0,
-				// A newer operator replaces the stored one unless decided otherwise.
-				overwrite: field === 'operator' ? true : Array.isArray(allowed) && allowed.includes(field)
+				overwrite: field in DIFF_DEFAULTS ? DIFF_DEFAULTS[field] === true : Array.isArray(allowed) && allowed.includes(field)
 			}))
 		};
 	},
@@ -1104,11 +1216,12 @@ export const methods: MethodMap = {
 		if (fields.some((f) => !(DIFF_FIELDS as readonly unknown[]).includes(f))) throw new AppError('field_invalid', 'Neznámé pole.');
 		const after = Math.max(0, Math.floor(Number(args?.after)) || 0);
 		const limit = Math.min(Math.max(1, Math.floor(Number(args?.limit)) || 50), REPORT_PAGE);
+		const specs = await loadDiffSpecs(ctx);
 		const parts = (fields as DiffField[]).map((field) => {
-			const d = DIFF_SQL[field];
+			const d = specs[field];
 			return `select r.row_no, r.ico, '${field}' as field, coalesce(${d.curText ?? d.cur}, ${d.cur}) as current,
 				coalesce(${d.incText ?? d.inc}, ${d.inc}) as incoming
-				${DIFF_FROM} and r.row_no > $2 and ${d.inc} is not null and ${d.cur} is not null and ${d.inc} <> ${d.cur}`;
+				${DIFF_FROM} and r.row_no > $2 and ${differsSql(d)}`;
 		});
 		// Whole rows only: the page ends at a row number, so no row is split between two pages.
 		const rows = await ctx.db.query<{ row_no: number; ico: string; field: DiffField; current: string; incoming: string }>(
@@ -1120,7 +1233,8 @@ export const methods: MethodMap = {
 		const rowCount = new Set(rows.map((r) => r.row_no)).size;
 		return {
 			items: rows.map((r) => {
-				const name = (value: string) => (r.field === 'operator' ? (OPERATOR_NAMES[value] ?? value) : value);
+				const name = (value: string) =>
+					r.field === 'operator' ? (OPERATOR_NAMES[value] ?? value) : r.field === 'robot_status' ? stateHolderText(value) : value;
 				return { rowNo: r.row_no, ico: r.ico, field: r.field, label: DIFF_LABELS[r.field], current: name(r.current), incoming: name(r.incoming) };
 			}),
 			last: rows.length ? rows[rows.length - 1].row_no : after,

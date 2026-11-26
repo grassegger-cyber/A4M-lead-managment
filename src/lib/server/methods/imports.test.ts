@@ -689,3 +689,90 @@ describe('imports: an operator that differs from the stored one', () => {
 		expect(await stored()).toBe('VF');
 	});
 });
+
+describe('imports: the choice covers every column (state from the robot, main phone, start of ownership)', () => {
+	const K = icoFromPrefix(9953001);
+
+	async function staged(data: Record<string, unknown>) {
+		const started = await call('imports.start', {
+			filename: 'vse.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], phone: ['Telefon'], robot_status: ['Stav z robota'], owned_from: ['Vlastnictví od'] },
+			declaredRows: 1,
+			emptyRows: 0
+		});
+		await call('imports.appendRows', { id: started.id, rows: [{ rowNo: 2, data: { ico: K, ...data } }] });
+		let state = await call('imports.validate', { id: started.id });
+		while (!state.done) state = await call('imports.validate', { id: started.id });
+		return started.id as number;
+	}
+	async function apply(id: number, overwrite?: string[]) {
+		let applied = await call('imports.apply', { id, confirm: true, ...(overwrite ? { overwrite } : {}) });
+		while (!applied.done) applied = await call('imports.apply', { id });
+	}
+	const company = () =>
+		db.one<Record<string, any>>(`select state, holder_type, owned_from, ownership_ends_on from companies where ico = $1`, [K]);
+	const field = async (id: number, name: string) => (await call('imports.diff', { id })).fields.find((f: any) => f.field === name);
+
+	it('a state nobody confirmed yet is only filled in; a confirmed one is a difference to decide', async () => {
+		await db.run(`insert into companies (ico, name) values ($1, 'Testovací K')`, [K]);
+		await db.run(`insert into company_phones (ico, phone, is_primary) values ($1, '+420000530001', true)`, [K]);
+		// Never confirmed, default pool: the robot result is written without asking.
+		let id = await staged({ robot_status: 'ANO', owned_from: '01. 11. 2026' });
+		expect(await field(id, 'robot_status')).toMatchObject({ differs: 0, fills: 1 });
+		await apply(id, []);
+		expect(await company()).toMatchObject({ state: 'superuser', holder_type: 'superuser', owned_from: '2026-11-01', ownership_ends_on: '2026-12-01' });
+
+		// Now confirmed as ours; the file says "not in Siebel": a difference. Kept when not chosen.
+		id = await staged({ robot_status: 'ANO - doplň do Siebelu' });
+		expect(await field(id, 'robot_status')).toMatchObject({ differs: 0, fills: 0 }); // superuser is not a state the import may change
+		await call('imports.cancel', { id });
+	});
+
+	it('a confirmed state in a changeable state is kept or overwritten as chosen', async () => {
+		await db.run(`update companies set state = 'neni_v_siebelu', holder_type = 'neznamo', holder_login = null where ico = $1`, [K]);
+		let id = await staged({ robot_status: 'NE' });
+		expect(await field(id, 'robot_status')).toMatchObject({ differs: 1, fills: 0, overwrite: true });
+		expect((await call('imports.diffRows', { id, field: 'robot_status' })).items[0]).toMatchObject({
+			current: 'Není v Siebelu · Neznámo',
+			incoming: 'Není v Siebelu · Jiný partner'
+		});
+		await apply(id, []);
+		expect(await company()).toMatchObject({ state: 'neni_v_siebelu', holder_type: 'neznamo' });
+		id = await staged({ robot_status: 'NE' });
+		await apply(id, ['robot_status']);
+		expect(await company()).toMatchObject({ state: 'neni_v_siebelu', holder_type: 'jiny_partner' });
+	});
+
+	it('another start of ownership moves the dates only when chosen', async () => {
+		await db.run(
+			`update companies set state = 'superuser', holder_type = 'superuser', holder_login = 'KAJZAR2', owned_from = '2026-11-01', ownership_ends_on = '2026-12-01' where ico = $1`,
+			[K]
+		);
+		let id = await staged({ robot_status: 'ANO', owned_from: '10. 11. 2026' });
+		expect(await field(id, 'owned_from')).toMatchObject({ differs: 1, overwrite: false });
+		await apply(id, []);
+		expect(await company()).toMatchObject({ owned_from: '2026-11-01', ownership_ends_on: '2026-12-01' });
+		id = await staged({ robot_status: 'ANO', owned_from: '10. 11. 2026' });
+		await apply(id, ['owned_from']);
+		expect(await company()).toMatchObject({ owned_from: '2026-11-10', ownership_ends_on: '2026-12-10' });
+	});
+
+	it('a new number is added; it becomes the main one only when chosen, and nothing is deleted', async () => {
+		let id = await staged({ phones: ['+420 000 530 002'] });
+		expect(await field(id, 'phone')).toMatchObject({ differs: 1, fills: 0, overwrite: false });
+		await apply(id, []);
+		const phones = () => db.query<Record<string, any>>(`select phone, is_primary from company_phones where ico = $1 order by phone`, [K]);
+		expect(await phones()).toEqual([
+			{ phone: '+420000530001', is_primary: true },
+			{ phone: '+420000530002', is_primary: false }
+		]);
+		id = await staged({ phones: ['+420 000 530 002'] });
+		expect(await field(id, 'phone')).toMatchObject({ differs: 1 }); // stored, but not the main one
+		await apply(id, ['phone']);
+		expect(await phones()).toEqual([
+			{ phone: '+420000530001', is_primary: false },
+			{ phone: '+420000530002', is_primary: true }
+		]);
+	});
+});
