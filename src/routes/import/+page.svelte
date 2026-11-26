@@ -78,6 +78,11 @@
 	const fieldOptions = $derived(fields.map((f) => ({ value: f.key, label: f.required ? `${f.label} (povinné)` : f.label })));
 	const usedFields = $derived(new Set(columnFields.filter(Boolean)));
 	const missingRequired = $derived(fields.filter((f) => f.required && !usedFields.has(f.key)));
+	// The table of columns is shown only on request or when something has to be decided there.
+	let showMap = $state(false);
+	const namedColumns = $derived(headers.filter((h) => h.trim()).length);
+	const unusedHeaders = $derived(headers.filter((h, c) => h.trim() && !columnFields[c]));
+	const mapOpen = $derived(showMap || missingRequired.length > 0);
 	const mappedFields = $derived(fields.filter((f) => usedFields.has(f.key)));
 	const tooManyRows = $derived(!!config && dataRows > config.maxRows);
 
@@ -447,10 +452,23 @@
 		<div class="block-head">
 			<h2>Sloupce souboru</h2>
 			<p class="text-muted lead">
-				Ke každému sloupci vyberte pole, do kterého patří. Návrh vychází z názvů záhlaví a z minulého importu; mapování se zapamatuje.
-				Telefon může mít víc sloupců, ostatní pole jeden.
-			 Tady jen říkáte, co který sloupec obsahuje. Jestli se má údaj, který se liší od databáze, přepsat, vyberete až po kontrole.</p>
+				{#if unusedHeaders.length === 0}
+					Všech {formatNumber(namedColumns)} sloupců aplikace poznala podle názvu.
+				{:else}
+					Poznáno {formatNumber(namedColumns - unusedHeaders.length)} z {formatNumber(namedColumns)} sloupců. Nepoužijí se:
+					<strong>{unusedHeaders.join(', ')}</strong>.
+				{/if}
+				Jestli se má údaj, který se liší od databáze, přepsat, vyberete po kontrole.
+			</p>
+			{#if !missingRequired.length}
+				<div class="map-toggle">
+					<Button variant="secondary" onclick={() => (showMap = !showMap)}>
+						{mapOpen ? 'Skrýt přiřazení sloupců' : 'Upravit přiřazení sloupců'}
+					</Button>
+				</div>
+			{/if}
 		</div>
+		{#if mapOpen}
 		<div class="scroll-x">
 			<table class="map">
 				<thead>
@@ -482,6 +500,7 @@
 				</tbody>
 			</table>
 		</div>
+		{/if}
 	</div>
 
 	<div class="panel block">
@@ -858,5 +877,8 @@
 		.steps li + li::before {
 			display: none;
 		}
+	}
+	.map-toggle {
+		margin-top: var(--space-3);
 	}
 </style>
