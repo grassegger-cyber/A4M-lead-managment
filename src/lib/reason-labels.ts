@@ -19,7 +19,8 @@ export const REASON_LABELS: Record<string, string> = {
 	quarantine_expired: 'Karanténa uplynula',
 	ares_dissolved: 'ARES: IČO zaniklo',
 	deal_won: 'Vyhraná příležitost',
-	rotation: 'Rotace na jiného obchodníka'
+	rotation: 'Rotace na jiného obchodníka',
+	ownership_extended: 'Vlastnictví prodlouženo'
 };
 
 export function reasonLabel(code: string | null | undefined): string {

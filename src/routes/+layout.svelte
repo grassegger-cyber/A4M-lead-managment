@@ -5,6 +5,7 @@
 	import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 	import Building from '@lucide/svelte/icons/building';
 	import Upload from '@lucide/svelte/icons/upload';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Settings from '@lucide/svelte/icons/settings';
 	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import LogOut from '@lucide/svelte/icons/log-out';
@@ -20,6 +21,7 @@
 		{ href: '/', label: 'Přehled', icon: LayoutDashboard },
 		{ href: '/ico', label: 'IČO', icon: Building },
 		{ href: '/import', label: 'Import', icon: Upload },
+		{ href: '/lhuty', label: 'Lhůty', icon: CalendarClock },
 		{ href: '/nastaveni', label: 'Nastavení', icon: Settings },
 		{ href: '/audit', label: 'Audit', icon: ScrollText }
 	];

@@ -12,6 +12,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 	'company.state_change': 'Změna stavu IČO',
 	'company.dates_override': 'Ruční přepsání data',
 	'export.companies': 'Export IČO do Excelu',
+	'export.returned_statuses': 'Soubor vrácení statusů',
+	'returns.confirmed': 'Soubor vrácení statusů odeslán',
+	'returns.cancelled': 'Soubor vrácení statusů zahozen',
 	'import.started': 'Import založen',
 	'import.validated': 'Import zkontrolován',
 	'import.confirmed': 'Import potvrzen k zápisu',
@@ -33,6 +36,7 @@ export const AUDIT_AREA_LABELS: Record<string, string> = {
 	import: 'Import',
 	imports: 'Import',
 	export: 'Export',
+	returns: 'Lhůty a vrácení statusů',
 	settings: 'Nastavení',
 	seed: 'Zkušební data'
 };

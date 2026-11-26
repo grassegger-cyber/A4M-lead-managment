@@ -17,6 +17,8 @@ export interface SheetSpec {
 	rows: (unknown[] | Record<string, unknown>)[];
 	/** No bold header row, first column bold instead (label – value sheets). */
 	labelColumn?: boolean;
+	/** Every cell is stored as text (identifiers with leading zeros). */
+	textOnly?: boolean;
 }
 
 async function loadExcelJs(): Promise<any> {
@@ -37,7 +39,7 @@ export async function buildWorkbook(sheets: SheetSpec[]): Promise<Blob> {
 		sheet.columns = spec.columns.map((column) => ({
 			...(spec.labelColumn ? {} : { header: column.header }),
 			width: column.width,
-			style: column.date ? { numFmt: 'dd". "mm". "yyyy' } : {}
+			style: column.date ? { numFmt: 'dd". "mm". "yyyy' } : spec.textOnly ? { numFmt: '@' } : {}
 		}));
 		if (spec.labelColumn) sheet.getColumn(1).font = { bold: true };
 		else sheet.getRow(1).font = { bold: true };

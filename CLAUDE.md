@@ -15,7 +15,7 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Měň jen to, o co Thomas žádá. Žádné refaktory ani vylepšení navíc.
 - Krok nezačínej, dokud Thomas nedodal podklady, které k němu návrh uvádí.
 - Názvy v kódu a komentáře anglicky. Celé UI česky se správnou diakritikou, datum ve tvaru DD. MM. RRRR.
-- Hodnoty stavů IČO jsou přesně podle zadání (`v_poolu`, `ve_filtru`, …).
+- Hodnoty stavů IČO jsou přesně podle zadání (`v_poolu`, `ve_filtru`, …) a jeho změn (`neni_v_siebelu`).
 - Žádné obchodní pravidlo napevno v kódu. Prahy, lhůty, limity, mapování statusů a vzory souborů patří do tabulek nastavení editovatelných v UI (seznam klíčů je v návrhu, oddíl 4.4).
 - Do Raynetu se zapisují jen dvě věci (Změny zadání 20. 11. 2026):
   - čtyři vlastní pole firmy (Kohorta, Semafor, Rozhodnutí o vlastnictví, Konec vlastnictví), vždy po náhledu a potvrzení;
@@ -43,6 +43,7 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Ostrá data nahrává jen Thomas přes Import po přihlášení. V cloudové databázi se smyšlená data nezakládají.
 - Místní běh (`npm run dev`) slouží jen k vývoji: bez přihlášení, databáze PGlite v paměti, smyšlená data.
 - Excel (import, export IČO, report chyb) se čte i zapisuje v prohlížeči; server vydává jen data po stránkách a export zapisuje do auditu předem.
+- Od 26. 11. 2026 navíc: import se sloupcem „Stav z robota“ (ANO / NE / ANO - doplň do Siebelu), třináctý stav `neni_v_siebelu`, obrazovka Lhůty se souborem vrácení statusů a prodloužením o 30 dní. Rozhodnutí jsou v `docs/00-zadani.md`, Změny z 26. 11. 2026.
 - Nepostaveno: noční šifrované zálohy, plánovač a fronta úloh.
 - Rozhodnuto 19. 11. 2026: Supabase na tarifu zdarma, zálohy vlastní a šifrované.
 - Zálohy schváleny 19. 11. 2026: noční, šifrované před odesláním (klíč drží jen Thomas), Cloudflare R2 v EU, držení 30 dní.
@@ -58,7 +59,7 @@ Před každým návrhem commitu spusť všechny tři a nech je projít:
 - `npm test` (testy; na místní data ve složce `data.nosync/` nesahají),
 - `npm run build` (sestavení webu i funkce `api`).
 
-Závislosti instaluj jen skriptem `./scripts/install-deps.sh`, ne příkazem `npm install` (důvod je v `docs/02-lokalni-beh.md`). Každá nová tabulka musí mít v migraci zapnuté RLS bez politik (hlídá to test v `src/lib/server/handler.test.ts`). Kód v `src/lib/server` nesmí importovat moduly Node (kromě `db.ts` a `local-dev.ts`, které do cloudové funkce nejdou).
+Závislosti instaluj jen skriptem `./scripts/install-deps.sh`, ne příkazem `npm install` (důvod je v `docs/02-lokalni-beh.md`). Nová migrace musí mít číslo vyšší než poslední už zapsaná (Supabase je zapisuje podle pořadí názvů a starší číslo odmítne) a do ostré databáze se zapisuje dřív, než se nasadí kód, který ji potřebuje, pokud to starý kód nerozbije. Každá nová tabulka musí mít v migraci zapnuté RLS bez politik (hlídá to test v `src/lib/server/handler.test.ts`). Kód v `src/lib/server` nesmí importovat moduly Node (kromě `db.ts` a `local-dev.ts`, které do cloudové funkce nejdou).
 
 ## Vzhled a ovládání (požadavek Thomase, 20. 11. 2026)
 

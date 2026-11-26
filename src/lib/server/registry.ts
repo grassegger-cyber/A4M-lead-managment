@@ -6,10 +6,11 @@ import { methods as auth } from './methods/auth.ts';
 import { methods as companies } from './methods/companies.ts';
 import { methods as dashboard } from './methods/dashboard.ts';
 import { methods as imports } from './methods/imports.ts';
+import { methods as returns } from './methods/returns.ts';
 import { methods as settings } from './methods/settings.ts';
 import { methods as system } from './methods/system.ts';
 
-const areas: Record<string, MethodMap> = { audit, auth, companies, dashboard, imports, settings, system };
+const areas: Record<string, MethodMap> = { audit, auth, companies, dashboard, imports, returns, settings, system };
 
 const table = new Map<string, Method>();
 for (const [area, methods] of Object.entries(areas)) {

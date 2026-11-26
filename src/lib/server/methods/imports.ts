@@ -440,7 +440,7 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 }
 
 /** Calendar day in Czech time, wherever the server runs. */
-function czechToday(d: Date): string {
+export function czechToday(d: Date): string {
 	return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
@@ -456,7 +456,7 @@ function czechToday(d: Date): string {
 async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | string)[]): Promise<void> {
 	const states = await getSetting<unknown>(ctx.db, 'import.robot_overwrite_states');
 	const login = await getSetting<unknown>(ctx.db, 'import.robot_owner_login');
-	const months = await positiveSetting(ctx, 'import.robot_ownership_months');
+	const days = await positiveSetting(ctx, 'ownership.superuser_hold_days');
 	if (!Array.isArray(states) || !states.length) return;
 	if (typeof login !== 'string' || !login.trim()) {
 		throw new AppError('setting_invalid', 'Nastavení „import.robot_owner_login“ musí být vyplněné.', 500);
@@ -486,7 +486,7 @@ async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | strin
 				holder_login = case ok.outcome when 'owned' then $6 when 'other_owner' then null else c.holder_login end,
 				owned_from = case when ok.outcome = 'owned' then ok.owned_from else c.owned_from end,
 				ownership_ends_on = case when ok.outcome = 'owned'
-					then (ok.owned_from + make_interval(months => $7::int))::date else c.ownership_ends_on end
+					then ok.owned_from + $7::int else c.ownership_ends_on end
 			from ok
 			where c.ico = ok.ico and (
 				c.state is distinct from ok.to_state
@@ -502,7 +502,7 @@ async function applyRobotStatus(ctx: Ctx, imp: ImportRow, range: (number | strin
 				else 'import_robot_other_owner' end,
 			$9, ok.cohort_id, 'import', $10, $11
 		from ok join u on u.ico = ok.ico`,
-		[...range, czechToday(ctx.now()), states, login.trim(), months, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name]
+		[...range, czechToday(ctx.now()), states, login.trim(), days, ctx.now(), `Import č. ${imp.id}`, ctx.actor.id, ctx.actor.name]
 	);
 }
 
