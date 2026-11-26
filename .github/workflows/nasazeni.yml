@@ -65,8 +65,8 @@ jobs:
           # The web address of the application; more addresses (own domain) go to the variable APP_ORIGINS.
           ALLOWED_ORIGINS: https://${{ env.PAGES_PROJECT }}.pages.dev ${{ vars.APP_ORIGINS }}
         run: |
-          supabase secrets set --project-ref "$PROJECT_REF" "ALLOWED_EMAILS=$ALLOWED_EMAILS" "ALLOWED_ORIGINS=$ALLOWED_ORIGINS" > /dev/null
-          supabase functions deploy api --project-ref "$PROJECT_REF"
+          supabase secrets set --yes --project-ref "$PROJECT_REF" "ALLOWED_EMAILS=$ALLOWED_EMAILS" "ALLOWED_ORIGINS=$ALLOWED_ORIGINS" > /dev/null
+          supabase functions deploy api --yes --project-ref "$PROJECT_REF"
 
       - name: Nastavení přihlášení (registrace vypnutá, 2FA zapnuté)
         env:
