@@ -76,16 +76,20 @@ jobs:
 
       - name: Kontrola úložiště
         run: |
-          # Says which part of the storage settings is wrong, without touching any data.
-          if aws s3api head-bucket --bucket "$R2_BUCKET" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
-            echo "Úložiště je dostupné na adrese pro EU."
-          elif aws s3api head-bucket --bucket "$R2_BUCKET" --endpoint-url "https://$ACCOUNT_ID.r2.cloudflarestorage.com" > /dev/null 2>&1; then
+          # Says which part of the storage settings is wrong, without touching any data. Only the
+          # answer of the storage (a code and a few words) is printed, never a key.
+          probe() { aws s3api head-bucket --bucket "$R2_BUCKET" --endpoint-url "$1" 2>&1 > /dev/null | tr -d '\n' | cut -c1-160; }
+          eu=$(probe "$R2_ENDPOINT") || true
+          if [ -z "$eu" ]; then echo "Úložiště je dostupné na adrese pro EU."; exit 0; fi
+          plain=$(probe "https://$ACCOUNT_ID.r2.cloudflarestorage.com") || true
+          echo "Odpověď adresy pro EU: $eu"
+          echo "Odpověď obecné adresy: ${plain:-v pořádku}"
+          if [ -z "$plain" ]; then
             echo "::error::Bucket existuje, ale není založený s jurisdikcí European Union (EU). Založte ho znovu s jurisdikcí EU."
-            exit 1
           else
-            echo "::error::Úložiště není dostupné: nesedí název bucketu (R2_BUCKET), přístupové klíče (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY), nebo token nemá oprávnění k tomuto bucketu."
-            exit 1
+            echo "::error::Úložiště není dostupné. 404 = nesedí název bucketu (R2_BUCKET). 403 = klíče nebo oprávnění tokenu (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)."
           fi
+          exit 1
 
       - name: Odeslání do úložiště
         run: |
