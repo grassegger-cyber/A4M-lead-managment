@@ -336,7 +336,11 @@
 							<tr class="good">
 								<th scope="row"><StateDot state="" dot={{ color: 'ink', variant: 'ring' }} label="IČO, která už v databázi jsou" /></th>
 								<td class="num">{formatNumber(counts.update)}</td>
-								<td class="text-muted">Doplní se údaje o firmě a telefony. Stav ani vlastnictví se nemění.</td>
+								<td class="text-muted">
+									Doplní se údaje o firmě a telefony.
+									{#if imp.robot}Stav a vlastnictví se změní podle sloupce „Stav z robota“, počty jsou níže.{:else}Stav ani vlastnictví se
+										nemění: sloupec „Stav z robota“ není v mapování tohoto importu.{/if}
+								</td>
 							</tr>
 							<tr>
 								<th scope="row"><StateDot state="" dot={{ color: 'grey', variant: 'solid' }} label="Duplicity v souboru" /></th>
