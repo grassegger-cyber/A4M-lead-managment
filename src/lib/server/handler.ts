@@ -128,6 +128,10 @@ export function createHandler(deps: HandlerDeps): (request: Request) => Promise<
 			return json({ ok: true, data: result ?? null }, 200, cors);
 		} catch (e) {
 			if (isAppError(e)) return fail(e.message, (e as AppError).code, (e as AppError).status);
+			// 55P03: the row is locked by another request that is still running (or was cut off).
+			if ((e as { code?: string })?.code === '55P03') {
+				return fail('Na stejném záznamu ještě běží předchozí požadavek. Zkuste to za půl minuty znovu.', 'busy', 409);
+			}
 			// Log the method and the error text only, never the request body.
 			console.error(`[api] ${name || '(before method)'} failed:`, e instanceof Error ? e.message : e);
 			return fail('Neočekávaná chyba serveru.', 'internal', 500);

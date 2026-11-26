@@ -76,6 +76,11 @@ export function openPostgres(postgres: PostgresFactory, url: string, options: Po
 		connection: {
 			application_name: 'a4m-lead-management',
 			statement_timeout: (options.statementTimeoutSeconds ?? 120) * 1000,
+			// A request that is cut off (page reload, worker stopped) must not keep rows locked:
+			// its open transaction is ended by the database, and a waiting request gives up soon
+			// with an error instead of hanging.
+			idle_in_transaction_session_timeout: 30_000,
+			lock_timeout: 15_000,
 			TimeZone: 'UTC'
 		},
 		types: {
