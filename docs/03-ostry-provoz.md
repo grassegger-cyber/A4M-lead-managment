@@ -82,7 +82,7 @@ Nastavení (jednou, Thomas):
 
 Obnova (zkouška jednou za čtvrt roku): stáhnout soubor z R2, `age -d -i a4m-zaloha-klic zaloha-….tar.gz.age | tar -xz`, do prázdné databáze nahrát `schema.sql` a pak `data.sql`. NEOVĚŘENO: zkouška obnovy zatím neproběhla; dokud neproběhne, není jisté, že se ze zálohy dá databáze postavit.
 
-NEOVĚŘENO do prvního běhu: přepínače `supabase db dump` v aktuální verzi nástroje a adresa úložiště.
+První záloha prošla 26. 11. 2026 (výpis, šifrování i uložení). Bucket musí mít jurisdikci European Union a token musí být vydaný pro tento bucket; kontrola v záloze při chybě vypíše, co nesedí.
 
 ## Co chybí
 

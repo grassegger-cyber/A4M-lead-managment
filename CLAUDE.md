@@ -44,7 +44,8 @@ Interní aplikace pro vedení A4M: řízení vlastnictví IČO v Siebelu a pří
 - Místní běh (`npm run dev`) slouží jen k vývoji: bez přihlášení, databáze PGlite v paměti, smyšlená data.
 - Excel (import, export IČO, report chyb) se čte i zapisuje v prohlížeči; server vydává jen data po stránkách a export zapisuje do auditu předem.
 - Od 26. 11. 2026 navíc: import se sloupcem „Stav z robota“ (ANO / NE / ANO - doplň do Siebelu), třináctý stav `neni_v_siebelu`, obrazovka Lhůty se souborem vrácení statusů a prodloužením o 30 dní. Rozhodnutí jsou v `docs/00-zadani.md`, Změny z 26. 11. 2026.
-- Zálohy: workflow `zalohy.yml` je napsaný, čeká na úložiště R2 a klíč od Thomase; zkouška obnovy neproběhla.
+- Zálohy běží od 26. 11. 2026 (workflow `zalohy.yml`, každou noc, šifrované klíčem Thomase, R2 s jurisdikcí EU, 30 dní); první záloha prošla. Zkouška obnovy ze zálohy zatím neproběhla.
+- Od 26. 11. 2026 dále: import se sloupcem Operátor, tabulka rozdílů s volbou Přepsat / Nechat u všech sloupců (výchozí Přepsat), stáří údajů s filtry a ikonou hodin, historie údajů u IČO (`company_changes`).
 - Funkce `api` používá knihovnu `postgres` verze 3. Verze 4 se v Supabase Edge Functions zasekávala na větších odpovědích (požadavek visel 150 s), neaktualizovat bez zkoušky na ostrém prostředí.
 - Nepostaveno: plánovač a fronta úloh.
 - Rozhodnuto 19. 11. 2026: Supabase na tarifu zdarma, zálohy vlastní a šifrované.
