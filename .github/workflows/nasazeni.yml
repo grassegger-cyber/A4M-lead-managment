@@ -84,5 +84,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          npx --yes wrangler@4 pages project create "$PAGES_PROJECT" --production-branch main > /dev/null 2>&1 || true
-          npx --yes wrangler@4 pages deploy build.nosync --project-name "$PAGES_PROJECT" --branch main --commit-dirty=true
+          # Cloudflare sometimes answers "Rate limited" after several deployments in a short time:
+          # wait and try again instead of failing the whole run.
+          for attempt in 1 2 3 4 5; do
+            if npx --yes wrangler@4 pages deploy build.nosync --project-name "$PAGES_PROJECT" --branch main --commit-dirty=true; then exit 0; fi
+            if [ "$attempt" = 1 ]; then
+              # The very first deployment needs the project to exist.
+              npx --yes wrangler@4 pages project create "$PAGES_PROJECT" --production-branch main > /dev/null 2>&1 || true
+            fi
+            echo "Pokus $attempt se nepodařil, za 2 minuty zkusím znovu."
+            sleep 120
+          done
+          exit 1
