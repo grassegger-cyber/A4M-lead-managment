@@ -43,6 +43,74 @@
 	let problemsPageSize = $state(20);
 	let problemsLoading = $state(false);
 
+	// Differences against the database (companies that already exist) and the choice what to overwrite.
+	interface DiffField {
+		field: string;
+		label: string;
+		differs: number;
+		fills: number;
+		overwrite: boolean;
+	}
+	interface DiffItem {
+		rowNo: number;
+		ico: string;
+		field: string;
+		label: string;
+		current: string;
+		incoming: string;
+	}
+	let diff = $state<DiffField[]>([]);
+	let overwrite = $state<Record<string, boolean>>({});
+	let shownField = $state<string | null>(null);
+	let shownItems = $state<DiffItem[]>([]);
+	let shownLast = $state(0);
+	let shownDone = $state(true);
+	let shownLoading = $state(false);
+	const diffRows = $derived(diff.filter((d) => d.differs > 0 || d.fills > 0));
+	const overwriteList = $derived(diff.filter((d) => overwrite[d.field]).map((d) => d.field));
+	const overwriteCount = $derived(diff.filter((d) => overwrite[d.field]).reduce((sum, d) => sum + d.differs, 0));
+	const keepCount = $derived(diff.filter((d) => !overwrite[d.field]).reduce((sum, d) => sum + d.differs, 0));
+
+	async function loadDiff() {
+		if (imp?.status !== 'validated') {
+			diff = [];
+			return;
+		}
+		try {
+			const res = await call<{ fields: DiffField[] }>('imports.diff', { id });
+			diff = res.fields;
+			overwrite = Object.fromEntries(res.fields.map((f) => [f.field, f.overwrite]));
+			shownField = null;
+		} catch {
+			// The table is a help for the decision; the import itself works without it.
+			diff = [];
+		}
+	}
+
+	async function showDiff(field: string, more = false) {
+		if (!more && shownField === field) {
+			shownField = null;
+			return;
+		}
+		shownLoading = true;
+		try {
+			const res = await call<{ items: DiffItem[]; last: number; done: boolean }>('imports.diffRows', {
+				id,
+				field,
+				after: more ? shownLast : 0,
+				limit: 50
+			});
+			shownItems = more ? [...shownItems, ...res.items] : res.items;
+			shownLast = res.last;
+			shownDone = res.done;
+			shownField = field;
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Rozdíly se nepodařilo načíst.');
+		} finally {
+			shownLoading = false;
+		}
+	}
+
 	const counts = $derived(imp?.counts ?? null);
 	const usable = $derived(counts ? counts.new + counts.update : 0);
 	const appliedRows = $derived(imp ? imp.applied.new + imp.applied.updated + imp.applied.unchanged : 0);
@@ -95,6 +163,7 @@
 		} else if (imp.counts) {
 			pickFirstTab();
 			await loadProblems();
+			await loadDiff();
 		}
 	}
 
@@ -114,9 +183,12 @@
 				imp = res.import;
 				if (res.done) break;
 			}
+			// The answer of the check does not carry the counts of "Stav z robota"; read the whole import.
+			await refresh();
 			problemsPage = 1;
 			pickFirstTab();
 			await loadProblems();
+			await loadDiff();
 		} catch (e) {
 			workError = e instanceof Error ? e.message : 'Kontrola se nepodařila.';
 			await refresh();
@@ -132,7 +204,10 @@
 		try {
 			let first = confirm;
 			for (;;) {
-				const res = await call<{ done: boolean; import: ImportSummary }>('imports.apply', { id, confirm: first });
+				const res = await call<{ done: boolean; import: ImportSummary }>(
+					'imports.apply',
+					first ? { id, confirm: true, ...(diff.length ? { overwrite: overwriteList } : {}) } : { id }
+				);
 				first = false;
 				imp = res.import;
 				if (res.done) break;
@@ -207,6 +282,27 @@
 				}
 				sheets.push({ name: sheet.name, columns: sheet.columns, rows });
 			}
+			if (imp?.status === 'validated' && diff.some((d) => d.differs > 0)) {
+				const rows: unknown[][] = [];
+				let after = 0;
+				for (;;) {
+					const part = await call<{ items: DiffItem[]; last: number; done: boolean }>('imports.diffRows', { id, after, limit: 5000 });
+					rows.push(...part.items.map((i) => [i.rowNo, i.ico, i.label, i.current, i.incoming]));
+					after = part.last;
+					if (part.done) break;
+				}
+				sheets.push({
+					name: 'Rozdíly proti databázi',
+					columns: [
+						{ header: 'Řádek v Excelu', width: 16 },
+						{ header: 'IČO', width: 12 },
+						{ header: 'Pole', width: 22 },
+						{ header: 'V databázi', width: 40 },
+						{ header: 'V souboru', width: 40 }
+					],
+					rows
+				});
+			}
 			saveBlob(await buildWorkbook(sheets), report.filename);
 			toast.success(`Report uložen: ${report.filename}`);
 		} catch (e) {
@@ -235,8 +331,10 @@
 	<h1>Import <strong>č. {id}</strong></h1>
 	{#if imp}
 		<div class="actions">
-			{#if imp.counts && hasProblems && !imp.rowsPurgedAt}
-				<Button variant="secondary" onclick={downloadReport} loading={downloading}>Stáhnout report chyb (.xlsx)</Button>
+			{#if imp.counts && (hasProblems || diff.some((d) => d.differs > 0)) && !imp.rowsPurgedAt}
+				<Button variant="secondary" onclick={downloadReport} loading={downloading}>
+					{hasProblems ? 'Stáhnout report chyb (.xlsx)' : 'Stáhnout rozdíly (.xlsx)'}
+				</Button>
 			{/if}
 			{#if ['uploading', 'uploaded', 'validated'].includes(imp.status)}
 				<Button variant="secondary" onclick={() => (cancelOpen = true)} disabled={!!working}>Zrušit import</Button>
@@ -390,6 +488,64 @@
 					</table>
 				</div>
 
+				{#if imp.status === 'validated' && diffRows.length > 0}
+					<div class="panel block">
+						<h2>Rozdíly proti databázi</h2>
+						<p class="text-muted lead">
+							U IČO, která už v databázi jsou. Chybějící údaj se doplní vždy. Kde se údaj v souboru liší od uloženého, rozhodněte, jestli ho
+							přepsat. Telefony se jen přidávají.
+						</p>
+						<table class="diff">
+							<thead>
+								<tr><th>Pole</th><th class="num">Liší se</th><th class="num">Doplní se</th><th>Při rozdílu</th><th></th></tr>
+							</thead>
+							<tbody>
+								{#each diffRows as d (d.field)}
+									<tr>
+										<th scope="row">{d.label}</th>
+										<td class="num">{formatNumber(d.differs)}</td>
+										<td class="num">{formatNumber(d.fills)}</td>
+										<td>
+											{#if d.differs > 0}
+												<label class="choice">
+													<input type="checkbox" bind:checked={overwrite[d.field]} disabled={!!working} />
+													<span>{overwrite[d.field] ? 'Přepsat hodnotou ze souboru' : 'Nechat původní'}</span>
+												</label>
+											{:else}
+												<span class="text-muted">žádný rozpor</span>
+											{/if}
+										</td>
+										<td class="right">
+											{#if d.differs > 0}
+												<Button variant="ghost" onclick={() => showDiff(d.field)} disabled={shownLoading}>
+													{shownField === d.field ? 'Skrýt' : 'Zobrazit rozdíly'}
+												</Button>
+											{/if}
+										</td>
+									</tr>
+									{#if shownField === d.field}
+										<tr class="detail">
+											<td colspan="5">
+												<table class="values">
+													<thead><tr><th>IČO</th><th>V databázi</th><th>V souboru</th></tr></thead>
+													<tbody>
+														{#each shownItems as item (item.rowNo)}
+															<tr><td class="num">{item.ico}</td><td>{item.current}</td><td>{item.incoming}</td></tr>
+														{/each}
+													</tbody>
+												</table>
+												{#if !shownDone}
+													<Button variant="secondary" onclick={() => showDiff(d.field, true)} loading={shownLoading}>Načíst další</Button>
+												{/if}
+											</td>
+										</tr>
+									{/if}
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+
 				{#if imp.status === 'validated'}
 					<!-- The decision: one glass capsule right under the result. -->
 					<div class="toolbar decide">
@@ -500,7 +656,13 @@
 	{#if counts}
 		<ul class="confirm-list">
 			<li><strong class="num">{formatNumber(counts.new)}</strong> {plural(counts.new, 'nové IČO se založí', 'nová IČO se založí', 'nových IČO se založí')} ve stavu „V poolu“.</li>
-			<li><strong class="num">{formatNumber(counts.update)}</strong> {plural(counts.update, 'existujícímu IČO', 'existujícím IČO', 'existujícím IČO')} se doplní údaje a telefony; stav a vlastnictví zůstanou.</li>
+			<li><strong class="num">{formatNumber(counts.update)}</strong> {plural(counts.update, 'existujícímu IČO', 'existujícím IČO', 'existujícím IČO')} se doplní chybějící údaje a telefony{#if imp?.robot}; stav a vlastnictví se změní podle sloupce „Stav z robota“{:else}; stav a vlastnictví zůstanou{/if}.</li>
+			{#if overwriteCount + keepCount > 0}
+				<li>
+					Rozdílné údaje: <strong class="num">{formatNumber(overwriteCount)}</strong> se přepíše hodnotou ze souboru,
+					<strong class="num">{formatNumber(keepCount)}</strong> zůstane, jak je v databázi.
+				</li>
+			{/if}
 			<li><strong class="num">{formatNumber(counts.duplicate + counts.invalidIco + counts.error)}</strong> {plural(counts.duplicate + counts.invalidIco + counts.error, 'řádek se nezapíše', 'řádky se nezapíšou', 'řádků se nezapíše')} (duplicity, neplatná IČO, chyby).</li>
 		</ul>
 		<p class="text-muted">Založená IČO a jejich historii nejde hromadně vrátit zpět.</p>
@@ -589,6 +751,86 @@
 	}
 	.block.work h2 {
 		padding: var(--plate-pad-y) 0 0;
+	}
+	.lead {
+		margin: -6px 0 12px;
+		padding: 0 var(--plate-pad-x);
+		max-width: 90ch;
+	}
+	table.diff {
+		width: 100%;
+		border-collapse: separate;
+		border-spacing: 0;
+		margin-bottom: 6px;
+	}
+	.diff th,
+	.diff td {
+		height: var(--row-h);
+		padding: 6px var(--space-3);
+		border-top: 1px solid var(--line);
+		text-align: left;
+		vertical-align: middle;
+	}
+	.diff > thead th {
+		font-size: var(--text-small);
+		color: var(--text-2);
+		font-weight: 600;
+	}
+	.diff > thead th:first-child,
+	.diff > tbody > tr > th {
+		padding-left: var(--plate-pad-x);
+		font-weight: 500;
+		white-space: nowrap;
+	}
+	.diff > thead th:first-child {
+		font-weight: 600;
+	}
+	.diff .num {
+		text-align: right;
+		width: 110px;
+	}
+	.diff .right {
+		text-align: right;
+		padding-right: var(--plate-pad-x);
+	}
+	.choice {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		min-height: var(--control-h);
+		cursor: pointer;
+	}
+	.choice input {
+		width: 22px;
+		height: 22px;
+		accent-color: var(--ink);
+	}
+	.diff tr.detail > td {
+		padding: 0 var(--plate-pad-x) 12px;
+		height: auto;
+		border-top: 0;
+	}
+	.diff table.values th,
+	.diff table.values td {
+		height: auto;
+		border-top: 0;
+		width: auto;
+		text-align: left;
+	}
+	table.values {
+		width: 100%;
+		border-collapse: collapse;
+		margin-bottom: 12px;
+	}
+	table.values th,
+	table.values td {
+		padding: 8px 12px;
+		text-align: left;
+		border-bottom: 1px solid var(--line, rgba(11, 27, 51, 0.08));
+	}
+	table.values th {
+		font-size: var(--text-small);
+		color: var(--text-2);
 	}
 	table.report {
 		width: 100%;

@@ -249,7 +249,9 @@ async function finishValidation(ctx: Ctx, imp: ImportRow): Promise<void> {
 			'code', 'robot_status_skipped', 'field', 'robot_status', 'value', coalesce(r.data->>'robot_status', '')))
 		 from companies c
 		 where r.import_id = $1 and r.status = 'update' and r.parsed ? 'robot_outcome'
-			and c.ico = r.ico and not (c.state = any($2::text[]))`,
+			and c.ico = r.ico and not (c.state = any($2::text[]))
+			-- The same file loaded again: an IČO that is already ours as the file says needs no warning.
+			and not (r.parsed->>'robot_outcome' = 'owned' and c.state = 'superuser' and c.holder_type = 'superuser')`,
 		[id, Array.isArray(overwrite) ? overwrite : []]
 	);
 	const counts = await ctx.db.query<{ status: string; n: number; warned: number }>(
@@ -325,7 +327,11 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 
 	// 2. Companies already in the database: only the non-ownership fields allowed by the setting,
 	//    and only where the row gives a value. State, holder, dates of ownership are never touched.
-	const allowed = (await getSetting<unknown>(ctx.db, 'import.update_existing_fields')) as unknown;
+	//    A value the company does not have yet is always filled in; a value that differs from the
+	//    stored one is overwritten only for the fields chosen for this import (or, without a choice,
+	//    by the setting).
+	const chosen = (imp.rules as { overwriteFields?: unknown } | null)?.overwriteFields;
+	const allowed = Array.isArray(chosen) ? chosen : ((await getSetting<unknown>(ctx.db, 'import.update_existing_fields')) as unknown);
 	const may = (field: (typeof UPDATABLE_FIELDS)[number]) => Array.isArray(allowed) && allowed.includes(field);
 	const flags = [
 		may('name'),
@@ -344,18 +350,21 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 	const updated = await ctx.db.run(
 		`with p as (
 			select r.ico,
-				case when $5 then r.parsed->>'name' end as name,
-				case when $6 then r.parsed->>'subject_type' end as subject_type,
-				case when $7 then r.parsed->>'legal_form_code' end as legal_form_code,
-				case when $8 then r.parsed->>'region_code' end as region_code,
-				case when $8 then r.parsed->>'region_name' end as region_name,
-				case when $9 then r.parsed->>'district_code' end as district_code,
-				case when $9 then r.parsed->>'district_name' end as district_name,
-				case when $10 and r.parsed ? 'nace_codes'
+				($8 or c0.region_code is null) as may_region,
+				($9 or c0.district_code is null) as may_district,
+				case when $5 or coalesce(c0.name, '') = '' then r.parsed->>'name' end as name,
+				case when $6 or c0.subject_type is null then r.parsed->>'subject_type' end as subject_type,
+				case when $7 or c0.legal_form_code is null then r.parsed->>'legal_form_code' end as legal_form_code,
+				case when $8 or c0.region_code is null then r.parsed->>'region_code' end as region_code,
+				case when $8 or c0.region_code is null then r.parsed->>'region_name' end as region_name,
+				case when $9 or c0.district_code is null then r.parsed->>'district_code' end as district_code,
+				case when $9 or c0.district_code is null then r.parsed->>'district_name' end as district_name,
+				case when ($10 or coalesce(cardinality(c0.nace_codes), 0) = 0) and r.parsed ? 'nace_codes'
 					then (select array_agg(v) from jsonb_array_elements_text(r.parsed->'nace_codes') as v) end as nace_codes,
-				case when $11 then (r.parsed->>'founded_on')::date end as founded_on,
-				case when $12 then r.parsed->>'ca_number' end as ca_number
+				case when $11 or c0.founded_on is null then (r.parsed->>'founded_on')::date end as founded_on,
+				case when $12 or coalesce(c0.ca_number, '') = '' then r.parsed->>'ca_number' end as ca_number
 			from import_rows r
+			join companies c0 on c0.ico = r.ico
 			where r.import_id = $1 and r.row_no > $2 and r.row_no <= $3 and r.status in ('new', 'update')
 				and not (r.ico = any($4::char(8)[]))
 		 ), f as (
@@ -363,11 +372,11 @@ async function applyChunk(ctx: Ctx, imp: ImportRow, fromRow: number, toRow: numb
 				coalesce(p.name, c.name) as name,
 				coalesce(p.subject_type, c.subject_type) as subject_type,
 				coalesce(p.legal_form_code, c.legal_form_code) as legal_form_code,
-				case when k.region_conflict and not $9 then c.region_code else coalesce(p.region_code, c.region_code) end as region_code,
-				case when k.region_conflict and not $9 then c.region_name else coalesce(p.region_name, c.region_name) end as region_name,
-				case when k.skip_district then c.district_code when k.region_conflict and $9 then null
+				case when k.region_conflict and not p.may_district then c.region_code else coalesce(p.region_code, c.region_code) end as region_code,
+				case when k.region_conflict and not p.may_district then c.region_name else coalesce(p.region_name, c.region_name) end as region_name,
+				case when k.skip_district then c.district_code when k.region_conflict and p.may_district then null
 					else coalesce(p.district_code, c.district_code) end as district_code,
-				case when k.skip_district then c.district_name when k.region_conflict and $9 then null
+				case when k.skip_district then c.district_name when k.region_conflict and p.may_district then null
 					else coalesce(p.district_name, c.district_name) end as district_name,
 				coalesce(p.nace_codes, c.nace_codes) as nace_codes,
 				coalesce(p.founded_on, c.founded_on) as founded_on,
@@ -630,6 +639,32 @@ async function robotCounts(ctx: Ctx, imp: ImportRow) {
 	return { owned: row?.owned ?? 0, otherOwner: row?.other_owner ?? 0, missing: row?.missing ?? 0, skipped: row?.skipped ?? 0 };
 }
 
+// ---------- differences against the database ----------
+/** For every field the import may overwrite: stored value and value in the file, as SQL over c and r. */
+const DIFF_SQL: Record<(typeof UPDATABLE_FIELDS)[number], { cur: string; inc: string; curText?: string; incText?: string }> = {
+	name: { cur: `nullif(c.name, '')`, inc: `r.parsed->>'name'` },
+	subject_type: { cur: 'c.subject_type', inc: `r.parsed->>'subject_type'` },
+	legal_form_code: { cur: 'c.legal_form_code', inc: `r.parsed->>'legal_form_code'` },
+	region: { cur: 'c.region_code', inc: `r.parsed->>'region_code'`, curText: 'c.region_name', incText: `r.parsed->>'region_name'` },
+	district: { cur: 'c.district_code', inc: `r.parsed->>'district_code'`, curText: 'c.district_name', incText: `r.parsed->>'district_name'` },
+	nace: {
+		cur: `nullif(array_to_string(c.nace_codes, ', '), '')`,
+		inc: `(select string_agg(v, ', ') from jsonb_array_elements_text(r.parsed->'nace_codes') as v)`
+	},
+	founded_on: { cur: 'c.founded_on::text', inc: `r.parsed->>'founded_on'` },
+	ca_number: { cur: `nullif(c.ca_number, '')`, inc: `r.parsed->>'ca_number'` }
+};
+
+const DIFF_FROM = `from import_rows r join companies c on c.ico = r.ico where r.import_id = $1 and r.status = 'update'`;
+
+async function diffableImport(ctx: Ctx, id: number): Promise<ImportRow> {
+	const imp = await readImport(ctx, id);
+	if (imp.status !== 'validated') {
+		throw new AppError('import_wrong_status', `Rozdíly jdou zobrazit jen u zkontrolovaného importu před zápisem (import č. ${id} je ${STATUS_LABELS[imp.status]}).`, 409);
+	}
+	return imp;
+}
+
 // ---------- methods ----------
 export const methods: MethodMap = {
 	/** What the import screen needs before a file is chosen. */
@@ -833,15 +868,31 @@ export const methods: MethodMap = {
 				if (args?.confirm !== true) {
 					throw new AppError('confirm_required', 'Zápis importu je potřeba výslovně potvrdit.', 409);
 				}
+				// Fields whose differing values this import may overwrite (absent = by the setting).
+				let overwrite: string[] | null = null;
+				if (args?.overwrite !== undefined && args?.overwrite !== null) {
+					if (!Array.isArray(args.overwrite) || args.overwrite.some((f: unknown) => !(UPDATABLE_FIELDS as readonly unknown[]).includes(f))) {
+						throw new AppError('overwrite_invalid', 'Neplatný výběr polí k přepsání.');
+					}
+					overwrite = [...new Set(args.overwrite as string[])];
+				}
 				await tx.db.run(
-					`update imports set status = 'applying', confirmed_at = $2, confirmed_by_name = $3 where id = $1`,
-					[id, tx.now(), tx.actor.name]
+					`update imports set status = 'applying', confirmed_at = $2, confirmed_by_name = $3,
+						rules = case when $4::jsonb is null then rules else coalesce(rules, '{}'::jsonb) || jsonb_build_object('overwriteFields', $4::jsonb) end
+					 where id = $1`,
+					[id, tx.now(), tx.actor.name, overwrite ? JSON.stringify(overwrite) : null]
 				);
 				await audit(tx, 'import.confirmed', {
 					entity: 'import',
 					entityId: id,
 					description: `Import č. ${id} potvrzen k zápisu (${imp.rows_new ?? 0} nových, ${imp.rows_update ?? 0} existujících IČO)`,
-					details: { filename: imp.filename, new: imp.rows_new, update: imp.rows_update, duplicate: imp.rows_duplicate }
+					details: {
+						filename: imp.filename,
+						new: imp.rows_new,
+						update: imp.rows_update,
+						duplicate: imp.rows_duplicate,
+						...(overwrite ? { overwrite_fields: overwrite } : {})
+					}
 				});
 				imp = await lockImport(tx, id);
 			}
@@ -975,6 +1026,66 @@ export const methods: MethodMap = {
 			total,
 			page,
 			pageSize
+		};
+	},
+
+	/**
+	 * What a checked import would change on companies already in the database. args: { id }.
+	 * Returns { fields: [{ field, label, differs, fills, overwrite }] }: differs = both have a value
+	 * and they are not the same (overwritten only when chosen), fills = the company has none yet
+	 * (always filled in), overwrite = the default from the setting.
+	 */
+	'imports.diff': async (ctx, args) => {
+		const id = importId(args);
+		await diffableImport(ctx, id);
+		const allowed = await getSetting<unknown>(ctx.db, 'import.update_existing_fields');
+		const select = UPDATABLE_FIELDS.map((field) => {
+			const { cur, inc } = DIFF_SQL[field];
+			return `(count(*) filter (where ${inc} is not null and ${cur} is not null and ${inc} <> ${cur}))::int as "${field}_differs",
+				(count(*) filter (where ${inc} is not null and ${cur} is null))::int as "${field}_fills"`;
+		}).join(', ');
+		const row = (await ctx.db.one<Record<string, number>>(`select ${select} ${DIFF_FROM}`, [id])) ?? {};
+		return {
+			fields: UPDATABLE_FIELDS.map((field) => ({
+				field,
+				label: IMPORT_FIELD_LABELS[field],
+				differs: row[`${field}_differs`] ?? 0,
+				fills: row[`${field}_fills`] ?? 0,
+				overwrite: Array.isArray(allowed) && allowed.includes(field)
+			}))
+		};
+	},
+
+	/**
+	 * The differing values themselves. args: { id, field?, after?, limit? } (after = row number of
+	 * the last item; without field all fields, for the report). Returns { items: [{ rowNo, ico,
+	 * field, label, current, incoming }], last, done }.
+	 */
+	'imports.diffRows': async (ctx, args) => {
+		const id = importId(args);
+		await diffableImport(ctx, id);
+		const fields = args?.field === undefined || args?.field === null ? [...UPDATABLE_FIELDS] : [args.field];
+		if (fields.some((f) => !(UPDATABLE_FIELDS as readonly unknown[]).includes(f))) throw new AppError('field_invalid', 'Neznámé pole.');
+		const after = Math.max(0, Math.floor(Number(args?.after)) || 0);
+		const limit = Math.min(Math.max(1, Math.floor(Number(args?.limit)) || 50), REPORT_PAGE);
+		const parts = (fields as (typeof UPDATABLE_FIELDS)[number][]).map((field) => {
+			const d = DIFF_SQL[field];
+			return `select r.row_no, r.ico, '${field}' as field, coalesce(${d.curText ?? d.cur}, ${d.cur}) as current,
+				coalesce(${d.incText ?? d.inc}, ${d.inc}) as incoming
+				${DIFF_FROM} and r.row_no > $2 and ${d.inc} is not null and ${d.cur} is not null and ${d.inc} <> ${d.cur}`;
+		});
+		// Whole rows only: the page ends at a row number, so no row is split between two pages.
+		const rows = await ctx.db.query<{ row_no: number; ico: string; field: (typeof UPDATABLE_FIELDS)[number]; current: string; incoming: string }>(
+			`with d as (${parts.join(' union all ')}),
+				page as (select distinct row_no from d order by row_no limit $3)
+			 select d.* from d join page using (row_no) order by d.row_no, d.field`,
+			[id, after, limit]
+		);
+		const rowCount = new Set(rows.map((r) => r.row_no)).size;
+		return {
+			items: rows.map((r) => ({ rowNo: r.row_no, ico: r.ico, field: r.field, label: IMPORT_FIELD_LABELS[r.field], current: r.current, incoming: r.incoming })),
+			last: rows.length ? rows[rows.length - 1].row_no : after,
+			done: rowCount < limit
 		};
 	},
 

@@ -536,3 +536,68 @@ describe('imports: stav z robota', () => {
 		expect(n!.n).toBe(2);
 	});
 });
+
+describe('imports: differences against the database and the choice what to overwrite', () => {
+	const P = icoFromPrefix(9951001);
+	const Q = icoFromPrefix(9951002);
+
+	async function staged() {
+		const started = await call('imports.start', {
+			filename: 'rozdily.xlsx',
+			sheetName: 'List1',
+			mapping: { ico: ['IČO'], name: ['Název'], subject_type: ['Typ'], ca_number: ['CA'] },
+			declaredRows: 2,
+			emptyRows: 0
+		});
+		await call('imports.appendRows', {
+			id: started.id,
+			rows: [
+				{ rowNo: 2, data: { ico: P, name: 'Nový název P', subject_type: 'PO', ca_number: '111' } },
+				{ rowNo: 3, data: { ico: Q, name: 'Testovací Q', subject_type: 'FO', ca_number: '222' } }
+			]
+		});
+		let state = await call('imports.validate', { id: started.id });
+		while (!state.done) state = await call('imports.validate', { id: started.id });
+		return started.id as number;
+	}
+
+	it('counts what differs and what would only be filled in, and lists the differing values', async () => {
+		// P: another name and type, no CA yet. Q: the same name, no type, another CA.
+		await db.run(`insert into companies (ico, name, subject_type, ca_number) values ($1, 'Starý název P', 'FO', null), ($2, 'Testovací Q', null, '999')`, [P, Q]);
+		const id = await staged();
+		const diff = await call('imports.diff', { id });
+		const by = Object.fromEntries(diff.fields.map((f: any) => [f.field, f]));
+		expect(by.name).toMatchObject({ differs: 1, fills: 0, overwrite: true });
+		expect(by.subject_type).toMatchObject({ differs: 1, fills: 1 });
+		expect(by.ca_number).toMatchObject({ differs: 1, fills: 1 });
+		expect(by.region).toMatchObject({ differs: 0, fills: 0 });
+
+		const names = await call('imports.diffRows', { id, field: 'name' });
+		expect(names.items).toEqual([{ rowNo: 2, ico: P, field: 'name', label: 'Název', current: 'Starý název P', incoming: 'Nový název P' }]);
+		const all = await call('imports.diffRows', { id });
+		expect(all.items.map((i: any) => [i.ico, i.field])).toEqual([
+			[P, 'name'],
+			[P, 'subject_type'],
+			[Q, 'ca_number']
+		]);
+		expect(all.done).toBe(true);
+		await expectError(call('imports.diffRows', { id, field: 'state' }), 'field_invalid');
+		await call('imports.cancel', { id });
+		await expectError(call('imports.diff', { id }), 'import_wrong_status');
+	});
+
+	it('overwrites only the chosen fields; a missing value is filled in always', async () => {
+		const id = await staged();
+		await expectError(call('imports.apply', { id, confirm: true, overwrite: ['state'] }), 'overwrite_invalid');
+		// Overwrite the CA only: names and types that differ stay as they are.
+		let applied = await call('imports.apply', { id, confirm: true, overwrite: ['ca_number'] });
+		while (!applied.done) applied = await call('imports.apply', { id });
+		const rows = await db.query<Record<string, any>>(`select ico, name, subject_type, ca_number from companies where ico = any($1::char(8)[]) order by ico`, [[P, Q]]);
+		expect(rows).toEqual([
+			{ ico: P, name: 'Starý název P', subject_type: 'FO', ca_number: '111' }, // CA filled in, the rest kept
+			{ ico: Q, name: 'Testovací Q', subject_type: 'FO', ca_number: '222' } // type filled in, CA overwritten
+		]);
+		const log = await db.one<{ details: any }>(`select details from audit_log where action = 'import.confirmed' order by id desc limit 1`);
+		expect(log!.details.overwrite_fields).toEqual(['ca_number']);
+	});
+});
