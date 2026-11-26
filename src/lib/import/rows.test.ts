@@ -187,6 +187,14 @@ describe('guessMapping', () => {
 		expect(guessMapping(['Firma', 'Název'], aliases, {})).toEqual(['name', '']);
 	});
 	it('prefers the remembered mapping, including "do not use"', () => {
-		expect(guessMapping(['Identifikátor', 'Název', 'Telefon'], aliases, { identifikator: 'ico', telefon: '-' })).toEqual(['ico', 'name', '']);
+		expect(guessMapping(['Identifikátor', 'Název', 'Kontaktní osoba'], aliases, { identifikator: 'ico', 'kontaktni osoba': '-' })).toEqual(['ico', 'name', '']);
+	});
+});
+
+describe('guessMapping: a column skipped last time', () => {
+	const aliases = { ico: ['ico'], robot_status: ['stav z robota'] };
+	it('is offered again when its header is an alias of a field, and stays skipped otherwise', () => {
+		const remembered = { 'stav z robota': '-', poznamka: '-' };
+		expect(guessMapping(['IČO', 'Stav z robota', 'Poznámka'], aliases, remembered)).toEqual(['ico', 'robot_status', '']);
 	});
 });

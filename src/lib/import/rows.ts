@@ -506,11 +506,13 @@ export function guessMapping(
 		used.add(field);
 	};
 	const keys = headers.map(headerKey);
-	// 1. remembered ('-' = the user chose not to use the column)
+	// 1. remembered ('-' = the column was not used last time). A column whose header is an exact
+	//    alias of a field is offered again all the same: every unmapped column is remembered as
+	//    '-', also one whose field did not exist yet at the time (e.g. "Stav z robota").
 	const skipped = new Set<number>();
 	keys.forEach((key, i) => {
 		const saved = key ? remembered?.[key] : undefined;
-		if (saved === '-') skipped.add(i);
+		if (saved === '-' && !aliasToField.has(key)) skipped.add(i);
 		else if (isImportField(saved)) take(i, saved);
 	});
 	// 2. exact alias, 3. alias followed by a number
